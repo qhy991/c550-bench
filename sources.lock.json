@@ -1,0 +1,11 @@
+{
+  "sol_execbench": {
+    "url": "https://github.com/NVIDIA/SOL-ExecBench.git",
+    "revision": "a9fa0804c793d438e70850c33fe34426e66d53dd"
+  },
+  "dataset": {
+    "id": "nvidia/SOL-ExecBench",
+    "revision": "63699402f003496acc3af4eb534a5304a8ac1ea9",
+    "license_url": "https://huggingface.co/datasets/nvidia/SOL-ExecBench/blob/63699402f003496acc3af4eb534a5304a8ac1ea9/LICENSE"
+  }
+}

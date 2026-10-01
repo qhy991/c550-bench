@@ -1,0 +1,91 @@
+{
+  "name": "c550-bench",
+  "version": 1,
+  "target_arch": "metax_c550",
+  "target_device_name": "MetaX C550",
+  "correctness_rounds": 10,
+  "seed": 200,
+  "difficulty_scale": "1 entry; 2 basic; 3 intermediate; 4 advanced; 5 challenge; editorial migration/optimization estimate, not measured",
+  "tasks": [
+    {
+      "id": "L1/069_rms_norm",
+      "label": "Residual + RMSNorm",
+      "difficulty": 1,
+      "family": "normalization",
+      "rationale": "归约和内存带宽入门；覆盖残差相加后的 BF16 舍入。",
+      "smoke_workload_uuid": "b6b63196-7f11-5b0d-969e-33e44f70975f"
+    },
+    {
+      "id": "L1/011_rotary_position_embedding",
+      "label": "Llama3 RoPE frequency scaling",
+      "difficulty": 2,
+      "family": "position_embedding",
+      "rationale": "整数位置索引、分段频率缩放、三角函数与 BF16 输出。",
+      "smoke_workload_uuid": "89aa51a1-f82a-5ca5-9772-0a697105778d"
+    },
+    {
+      "id": "L1/048_fused_gate_up_projection_with_swiglu",
+      "label": "Dual projection + GELU-tanh gate",
+      "difficulty": 3,
+      "family": "gemm_activation",
+      "rationale": "两路大矩阵乘和 epilogue 融合；参考实现实际是 GELU-tanh，不能按题名实现 SiLU。",
+      "smoke_workload_uuid": "2f5ec70e-5498-5516-bf3f-20159665dcc8"
+    },
+    {
+      "id": "L1/058_moe_expert_token_radix_sort_with_prefix_sum",
+      "label": "Stable expert bucketing + prefix sum",
+      "difficulty": 3,
+      "family": "integer_routing",
+      "rationale": "稳定排序、直方图和前缀和；token 顺序与 expert offsets 必须精确一致。",
+      "smoke_workload_uuid": "e259b448-b73a-5efa-81c4-f0c9e1531e3e"
+    },
+    {
+      "id": "L1/001_attention_softmax_dropout_value_matmul_backward",
+      "label": "GQA attention backward",
+      "difficulty": 4,
+      "family": "attention_backward",
+      "rationale": "两个梯度输出、softmax/dropout 链式法则及 GQA 跨组归约。",
+      "smoke_workload_uuid": "d0ad1a89-e905-51d0-acb2-a746b3fb6a6b"
+    },
+    {
+      "id": "L2/035_convnextv2_block_with_grn",
+      "label": "ConvNeXtV2 + GRN block",
+      "difficulty": 3,
+      "family": "vision_convolution",
+      "rationale": "深度卷积、NCHW/NHWC 转换、LayerNorm、GELU、空间范数和残差；补齐 FP32 视觉负载。",
+      "smoke_workload_uuid": "2136f74f-76b1-54ae-875e-54bc95b63634"
+    },
+    {
+      "id": "L2/018_cu_seqlens_variable_length_vision_attention",
+      "label": "Variable-length vision attention",
+      "difficulty": 4,
+      "family": "ragged_attention",
+      "rationale": "变长分段、非标准 head_dim=72、RoPE 和投影，覆盖 ragged attention。",
+      "smoke_workload_uuid": "6199650f-5543-50c2-b8f1-d52c3c06b269"
+    },
+    {
+      "id": "L2/024_moe_expert_parallel_execution",
+      "label": "256-expert dispatch / SwiGLU / combine",
+      "difficulty": 4,
+      "family": "mixture_of_experts",
+      "rationale": "256 个专家、top-8、不规则 gather/scatter 和 grouped GEMM；单份输入约 12 GiB。",
+      "smoke_workload_uuid": "b1b5c374-9733-5e46-afa1-6768145091be"
+    },
+    {
+      "id": "L2/060_chunk_gated_delta_rule_linear_attention",
+      "label": "Chunk gated delta-rule attention",
+      "difficulty": 5,
+      "family": "recurrent_linear_attention",
+      "rationale": "chunk=64、序列尾部 padding、三角更新和跨 chunk 状态传播，覆盖线性注意力。",
+      "smoke_workload_uuid": "ab03a167-34d1-5bda-b482-f8cb408aa731"
+    },
+    {
+      "id": "L2/056_language_model_decoder_prenorm_attention_ffn_residual_backward",
+      "label": "Complete decoder-layer backward",
+      "difficulty": 5,
+      "family": "decoder_backward",
+      "rationale": "RMSNorm、RoPE、GQA、SwiGLU 和残差的完整反向链；十个输出，含 FP32 norm 梯度。",
+      "smoke_workload_uuid": "66c2be25-3f64-5495-ae5a-984219d26407"
+    }
+  ]
+}

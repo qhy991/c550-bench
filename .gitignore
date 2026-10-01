@@ -1,0 +1,8 @@
+.deps/
+.data/
+.local/
+.venv/
+__pycache__/
+*.py[cod]
+results/
+.DS_Store

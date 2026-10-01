@@ -1,0 +1,4 @@
+# For an isolated CPU development environment only; never apply to vendor MetaX Python.
+-r requirements-prepare.txt
+torch==2.9.0
+numpy==2.2.6
