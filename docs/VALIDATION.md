@@ -3,6 +3,9 @@
 C550-2 自有容器 `glm53-flame-trace-0925`，MetaX vLLM 镜像 tag `0821`，
 Python 3.10.10，PyTorch `2.10.0+metax3.8.0.4.c600u`，Pydantic 2.13.4，
 Triton 3.6.0；八卡无进程的快照先于 GPU run，结束后亦无 GPU 进程。
+部署副本位于宿主 `/root/experiments/glm53-flame-chase-20260925/c550-bench-20261001/`
+（容器内 `/root/exp/c550-bench-20261001/`）；它是当时已授权的自有容器挂载目录，
+不是仓库代码或长期存储。结果路径均为 create-only。
 本仓库 runner SHA-256 `f42068107e18b7e2dede942320dbb14d2fb4d86fd4bb127597c3c24411ddfb4d`，
 `suite.json` SHA-256 `d237bb82c53b1ee136efb6922e2aafc0139feb7aa582d6c87dbd21233064b076`，
 `sources.lock.json` SHA-256 `650bb88a2a4fb8136b209c1f04b8ff30f1bb5ffd1ba6d0746a086a7d2c0d31cd`。
