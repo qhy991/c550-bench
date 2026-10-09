@@ -78,6 +78,8 @@ def main():
                 "inputs": json.loads(row["inputs"]), "outputs": json.loads(row["outputs"]), "reference": row["reference"],
             }
             workloads = json.loads(row["workloads"])
+            if len(workloads) != 16 or len({w["uuid"] for w in workloads}) != 16:
+                raise RuntimeError("Expected 16 distinct original workloads: " + task["id"])
             if task["smoke_workload_uuid"] not in {w["uuid"] for w in workloads}:
                 raise RuntimeError("Frozen smoke workload is absent: " + task["id"])
             target = ROOT / ".data/benchmark" / task["id"]
@@ -86,7 +88,9 @@ def main():
             write_or_verify(target / "workload.jsonl", "".join(json.dumps(w) + "\n" for w in workloads))
             materialized.append({"task": task["id"], "workloads": len(workloads)})
     receipt = {"sources": lock, "tasks": materialized, "raw_dataset_in_git": False}
-    write_or_verify(ROOT / ".data/materialization.json", json.dumps(receipt, indent=2) + "\n")
+    version = suite.get("version", 1)
+    receipt_name = "materialization.json" if version == 1 else f"materialization-suite-v{version}.json"
+    write_or_verify(ROOT / ".data" / receipt_name, json.dumps(receipt, indent=2) + "\n")
     print(json.dumps(receipt, indent=2))
 
 

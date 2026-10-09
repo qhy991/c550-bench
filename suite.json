@@ -1,6 +1,6 @@
 {
   "name": "c550-bench",
-  "version": 1,
+  "version": 2,
   "target_arch": "metax_c550",
   "target_device_name": "MetaX C550",
   "correctness_rounds": 10,
@@ -86,6 +86,22 @@
       "family": "decoder_backward",
       "rationale": "RMSNorm、RoPE、GQA、SwiGLU 和残差的完整反向链；十个输出，含 FP32 norm 梯度。",
       "smoke_workload_uuid": "66c2be25-3f64-5495-ae5a-984219d26407"
+    },
+    {
+      "id": "L1/003_lm_head_projection_with_logit_slicing",
+      "label": "BF16 LM head GEMM",
+      "difficulty": 2,
+      "family": "gemm",
+      "rationale": "独立BF16词表投影GEMM；K=2048、N=102400，覆盖规则大N、M=128..8192及不规则M；原16个workload均logits_to_keep=seq_len，保留原完整输出语义。",
+      "smoke_workload_uuid": "adb76181-ffee-52f7-9fd7-517dd3b29a22"
+    },
+    {
+      "id": "L1/077_whisper_decoder_output_projection",
+      "label": "FP16 Whisper output GEMM",
+      "difficulty": 3,
+      "family": "gemm",
+      "rationale": "独立FP16输出投影GEMM；K=1280、N=51866，覆盖M=1的decode与大M，强调N尾块、tile选择和访存布局。",
+      "smoke_workload_uuid": "f16caebe-a2e8-5550-b7ed-6efb043e1600"
     }
   ]
 }

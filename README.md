@@ -2,7 +2,7 @@
 
 面向 **MetaX C550** 的固定 SOL-ExecBench 正确性工作集。与
 [qhy991/bw1100-bench](https://github.com/qhy991/bw1100-bench) 共用同一上游源码、数据修订、
-10 题、160 个原始 workload、每 workload 10 轮新输入及原始比较器；只改变设备身份与
+12 题、192 个原始 workload、每 workload 10 轮新输入及原始比较器；只改变设备身份与
 MetaX 的实际执行入口。可用于独立 Torch、Triton-MetaX 或其他候选的 return-value ABI
 验证，**不是性能基准或 NVIDIA 官方分数**。
 
@@ -23,7 +23,12 @@ SOL-ExecBench 源码和数据版本。难度 1–5 是人工估计，不是测�
 | L2/024 | 256 专家 MoE dispatch/compute/combine | 4 | top-8、不规则 gather/scatter、grouped GEMM、大权重 |
 | L2/060 | Chunk gated delta-rule attention | 5 | chunk=64、尾部 padding、三角更新、递归状态 |
 | L2/056 | 完整 decoder layer backward | 5 | 十个梯度输出、混合 dtype、attention/MLP/norm 反向组合 |
+| L1/003 | BF16 LM head GEMM | 2 | K=2048、N=102400，大词表规则 N 和不规则 M |
+| L1/077 | FP16 Whisper output GEMM | 3 | K=1280、N=51866，M=1 decode、N 尾块和大 M |
 
+Suite v2 新增两个独立 GEMM，每题保留 16 个原始 workload；全套预期共 1920 次正确性检查。
+形状、ABI 和资格边界见 [GEMM additions](docs/GEMM-ADDITIONS-2026-10-09.md)。
+新题的 Torch 示例尚未取得 C550 设备资格或性能结果。
 
 完整保留所有原始 shape、dtype、容差和 UUID，不为了适应显存而缩小。
 L2/024 单输入约 12 GiB，还需要 reference、候选与中间结果；应单独安排设备。
@@ -46,6 +51,8 @@ uv pip install --python .venv/bin/python -r requirements-cpu-test.txt
 
 `prepare.py` 固定上游修订，并复用其 `gen_inputs`、reference 和
 `compute_error_stats`；已有准备目录若与锁文件不符则拒绝覆盖。
+扩展后的准备回执写入 `.data/materialization-suite-v2.json`，保留已有十题的
+`.data/materialization.json`，可复用原始 Parquet 缓存继续准备新增两题。
 `python3 c550bench.py list` 只依赖标准库。CPU 自检、audit 和编译不会升格为
 C550 设备资格，实际结果记录在 [验证记录](docs/VALIDATION.md)。
 
@@ -76,7 +83,7 @@ python c550bench.py check --task L1/069_rms_norm --device cuda:0 \
 
 输出路径必须新建，首个输入、reference、candidate 或比较错误立即写失败报告。
 仅当**独立候选**在 MetaX C550 上完成该题全部 16 个原始 workload 与 10 轮，
-并逐轮通过，报告才设置 `full_device_correctness=true`。单题通过不等于整套十题通过。
+并逐轮通过，报告才设置 `full_device_correctness=true`。单题通过不等于整套题集通过。
 每轮同时检查 shape/dtype、上游容差以及整数/bool 精确相等；详见
 [正确性规则](docs/CORRECTNESS.md)。本脚本不分配 GPU，不隔离其他作业，运行者须
 先确认设备归属；不触碰 c550-1 的部署服务。
