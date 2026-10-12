@@ -1,5 +1,14 @@
 # c550-bench operating rules
 
+## GitHub Project tracking
+
+For newly authorized qhy991-managed work, follow the canonical
+[agent tracking policy](https://github.com/users/qhy991/projects/1) in the
+Project README. Read it before task work and perform its checkpoint updates
+through the authenticated GitHub CLI/API. This binding adds tracking metadata
+only; the repository's existing issue, lifecycle, resource, privacy and
+acceptance rules retain their authority.
+
 - `suite.json` owns the selected tasks, original smoke UUIDs, seed and ten-round correctness contract. Suite version 2 contains twelve tasks. `sources.lock.json` owns upstream revisions. Preserve all original workload shapes and effective tolerances.
 - Reuse pinned SOL-ExecBench input generator/reference/comparator. Candidate code may change, oracle semantics may not. Discrete outputs require exact equality in addition to upstream numeric rules.
 - Raw dataset and generated definitions stay in ignored `.data/`, source checkout in `.deps/`. Never commit or publish raw material, even to a private repository.
