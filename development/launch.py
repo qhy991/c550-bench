@@ -92,8 +92,9 @@ def release_verified(root=ROOT,proc_root=Path('/proc')):
 
 def main(argv=None):
     from development.controller_entry import controller_command
-    check=(argv or sys.argv[1:])==['--check']
-    if (argv or sys.argv[1:]) not in ([],['--check']):raise ValueError('launch accepts only --check')
+    arguments=sys.argv[1:] if argv is None else argv
+    check=arguments==['--check']
+    if arguments not in ([],['--check']):raise ValueError('launch accepts only --check')
     binding=read(ROOT/'campaign/development-binding.json')
     if subprocess.check_output(['git','status','--porcelain'],text=True).strip():raise ValueError('prepared task source changed')
     for relative in binding['skills'].values():

@@ -11,7 +11,7 @@ from development.binding import SKILLS, TARGET, validate
 from development.prepare import prepare
 from development.runtime import evaluation_purpose, load_local_baseline, native_plan
 from development.queue import DevelopmentQueue, reconcile
-from development.launch import hmz_command, release_verified, select_nominee
+from development.launch import hmz_command, main as launch_main, release_verified, select_nominee
 from development.submission import abandon_pending, execute, service, validate as validate_request
 from development.owner_evaluation import require_owner
 from development.controller_entry import SOURCE, controller_command
@@ -129,6 +129,11 @@ class DevelopmentPreparation(unittest.TestCase):
         flow=(ROOT/'development/ralph_flow.py').read_text()
         self.assertIn('resumable=True',flow)
         self.assertIn('max_rounds',flow)
+
+    def test_controller_can_pass_empty_launch_arguments(self):
+        with patch('sys.argv',['controller_entry.py','--root','/task','launch']), \
+             patch('development.launch.read',side_effect=FileNotFoundError('binding sentinel')):
+            with self.assertRaisesRegex(FileNotFoundError,'binding sentinel'):launch_main([])
 
     def test_confirmation_maps_to_the_evaluators_confirmatory_purpose(self):
         self.assertEqual(evaluation_purpose('search'),'search')
