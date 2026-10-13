@@ -37,7 +37,7 @@ class JsonCompilerBoundary(unittest.TestCase):
                 raise CandidateCompileRejected('cpu_probe_reached_toolchain',artifact_payloads={})
         probe=CompileProbe()
         with tempfile.TemporaryDirectory() as directory:
-            root=Path(directory);campaign=root/'campaign';(campaign/'candidates').mkdir(parents=True)
+            root=Path(directory).resolve();campaign=root/'campaign';(campaign/'candidates').mkdir(parents=True)
             (root/'.deps').mkdir();(root/'.deps/cake-ir').symlink_to(self.source,target_is_directory=True)
             def write(name,value):(campaign/name).write_text(json.dumps(value))
             write('development-binding.json',{'compiler':compiler.commit})
