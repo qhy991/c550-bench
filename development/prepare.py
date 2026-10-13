@@ -11,7 +11,9 @@ from .binding import clean_checkout, git, read, render_task, validate
 
 GENERATED = (
     "campaign/compiler-actions/", "campaign/evaluations/", "campaign/native-engineering/",
-    "campaign/management/", "campaign/logs/", "campaign/deadline.json",
+    "campaign/management/", "campaign/logs/", "campaign/baseline-preparation/",
+    "campaign/runtime/", "campaign/prepared-baseline.json", "campaign/runtime.json",
+    "campaign/authority.json", "campaign/controller-status.json", "campaign/deadline.json",
     "campaign/intake.json", "campaign/ENDPOINT.json", "campaign/DONE.json",
     "campaign/SEARCH_CLOSE.json", "campaign/search-close-owner.json",
 )

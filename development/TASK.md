@@ -25,6 +25,20 @@ A transform result is a candidate, not a correctness or performance result. Keep
 request, parent, result and generated Program/stages. Never edit the catalog or reuse an
 action id.
 
+Evaluate an authored Cake candidate with a fresh id:
+
+```bash
+python3 -m development.runtime evaluate \
+  --candidate campaign/candidates/CANDIDATE.py --id SEARCH_ID \
+  --phase search --route cake
+python3 -m development.runtime evaluate \
+  --candidate campaign/candidates/CANDIDATE.py --id PROFILE_ID \
+  --phase attribution --route cake
+```
+
+The owner will consider only correctness-qualified search evidence with a separate
+accepted attribution result. Do not invoke final confirmation.
+
 ## Default Cake route
 
 Start from `campaign/candidates/starter.py`. Author complete Cake Python Schedules under
@@ -52,6 +66,10 @@ a native result or report native timing as Cake timing. Report both routes and t
 for the split. A validated native mechanism can become a later Compiler/IR/lowering
 proposal only through a successor commit, its analyses, counterexamples, Corpus Gate and
 separate C550 qualification. `No promotion` is valid.
+
+After writing the required `plan.json` and native candidate JSON, use the same evaluator
+with `--route native_triton`. The candidate must remain below the plan directory. Use
+fresh search and attribution ids and retain both Cake and native observations.
 
 ## Budget and evidence
 
