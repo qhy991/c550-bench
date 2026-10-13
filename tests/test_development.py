@@ -15,6 +15,7 @@ from development.launch import hmz_command, main as launch_main, release_verifie
 from development.submission import abandon_pending, execute, service, validate as validate_request
 from development.owner_evaluation import require_owner
 from development.controller_entry import SOURCE, controller_command
+from development.report import combine, report as development_report
 
 ROOT=Path(__file__).resolve().parents[1]
 TASKS=json.loads((ROOT/'development/tasks.json').read_text())['tasks']
@@ -305,5 +306,35 @@ class EvaluationSubmissionTests(unittest.TestCase):
                 with self.assertRaises(subprocess.TimeoutExpired):
                     execute(root,request,{},0.02,folder)
             self.assertIsNotNone(process[0].poll())
+
+
+class DevelopmentReportTests(unittest.TestCase):
+    def test_unstarted_and_failed_tasks_stay_in_the_denominator(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);state=root/'state';(state/'terminals').mkdir(parents=True)
+            runs=[]
+            for task in ('a','b'):
+                workspace=root/task;workspace.mkdir();runs.append({'task':task,'root':str(workspace)})
+            allocation=root/'allocation.json';allocation.write_text(json.dumps({
+                'kind':'c550_hmz_development_allocation','host':'fixture',
+                'compiler':'fixed-compiler','adapter_commit':'fixed-launcher','runs':runs}))
+            (state/'terminals/a.json').write_text(json.dumps({'error':'unstarted_owner_exit','exit_code':None}))
+            result=development_report(allocation,state)
+            self.assertEqual(result['assigned'],2)
+            self.assertEqual(result['execution_counts'],{'terminal':1,'unstarted':1})
+            self.assertFalse(any(row['confirmation']['qualified'] for row in result['rows']))
+            self.assertEqual(result['rows'][0]['terminal_error'],'unstarted_owner_exit')
+
+    def test_partial_or_duplicate_host_views_cannot_claim_all54_coverage(self):
+        host={'compiler':'fixed','launcher':'fixed','rows':[{'task':'rmsnorm'}]}
+        with self.assertRaisesRegex(ValueError,'denominator'):combine([host])
+        with self.assertRaisesRegex(ValueError,'duplicate'):combine([host,host])
+
+    def test_all54_coverage_is_independent_of_success(self):
+        rows=[{'task':task,'execution':'unstarted'} for task in TASKS]
+        result=combine([{'compiler':'fixed','launcher':'fixed','rows':rows[:27]},
+                        {'compiler':'fixed','launcher':'fixed','rows':rows[27:]}])
+        self.assertTrue(result['complete_denominator'])
+        self.assertFalse(result['performance_claim'])
 
 if __name__=='__main__':unittest.main()

@@ -30,3 +30,21 @@ Preparation is not launch qualification. Before intake, the live successor must 
 4. candidate correctness, ten-sample MACA event timing, separate MCPTI profiling and
    canonical release for both Cake and any enabled native route;
 5. one create-only deadline and one terminal record per assignment, with no retries.
+
+The live controller and its evaluation children run through the absolute
+`development/controller_entry.py` in the pinned launcher checkout, mounted read-only,
+under Python's isolated import mode. Each task links this checkout at `.deps/launcher`.
+The author workspace's public evaluator submits a create-only request; the controller
+services it outside the author's inherited seccomp. Qualification must exercise a real
+isolated author request through correctness, event timing, independent profiling,
+same-candidate confirmation and release. Controller-direct probes alone do not cover
+that path.
+
+`python3 -m development.report --allocation HOST_ALLOCATION --state HOST_STATE` derives
+one host's full denominator from retained evidence. The report distinguishes live owners,
+unstarted tasks, terminal errors, correctness, timing quality and final confirmation.
+`development.report.combine` refuses missing tasks, duplicates and mismatched source
+bindings before producing the54-task view. Coverage does not imply success, and an
+accepted search or profile is not an optimization result. The journal and evolution paths
+remain evidence for later review; the reporter does not infer promotion from author text.
+Reporting may use a successor tool without changing a frozen task's Compiler or launcher.
