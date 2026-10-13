@@ -29,6 +29,16 @@ def clone(source: Path, destination: Path, commit: str) -> None:
     subprocess.run(["git", "-C", str(destination), "checkout", "--quiet", "--detach", commit], check=True)
 
 
+def source_identity(root: Path) -> dict[str, str]:
+    identity = {}
+    for key in ("user.name", "user.email"):
+        value = git(root, "config", "--get", key)
+        if not value:
+            raise ValueError(f"configure launcher checkout Git {key} before preparation")
+        identity[key] = value
+    return identity
+
+
 def prepare(plan_path: Path, host: str, output: Path, *, repository: Path | None = None) -> dict:
     repository = Path(repository or Path(__file__).resolve().parents[1]).resolve(strict=True)
     plan = read(plan_path)
@@ -39,6 +49,7 @@ def prepare(plan_path: Path, host: str, output: Path, *, repository: Path | None
         raise ValueError("requested host has no frozen assignments")
     adapter_root = clean_checkout(Path(config["adapter_root"]), plan["adapter_commit"])
     compiler_root = clean_checkout(Path(config["compiler_root"]), plan["compiler_commit"])
+    identity = source_identity(adapter_root)
     for relative in plan["skills"].values():
         path = compiler_root / relative
         if not path.is_file() or path.resolve() != path:
@@ -56,6 +67,8 @@ def prepare(plan_path: Path, host: str, output: Path, *, repository: Path | None
             raise FileExistsError(f"fresh development workspace exists: {run}")
         run.parent.mkdir(parents=True, exist_ok=True)
         clone(adapter_root, run, plan["adapter_commit"])
+        for key, value in identity.items():
+            subprocess.run(["git", "-C", str(run), "config", "--local", key, value], check=True)
         (run / ".deps").mkdir()
         (run / ".deps/cake-ir").symlink_to(compiler_root, target_is_directory=True)
         for name in ("candidates", "compiler-actions", "evaluations", "native-engineering",

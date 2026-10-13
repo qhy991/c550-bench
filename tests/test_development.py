@@ -14,8 +14,8 @@ TASKS=json.loads((ROOT/'development/tasks.json').read_text())['tasks']
 def git(root,*args): return subprocess.check_output(['git','-C',str(root),*args],text=True).strip()
 def repository(root,files):
     root.mkdir();subprocess.run(['git','init','-q',str(root)],check=True)
-    subprocess.run(['git','-C',str(root),'config','user.name','Fixture'],check=True)
-    subprocess.run(['git','-C',str(root),'config','user.email','fixture@example.invalid'],check=True)
+    subprocess.run(['git','-C',str(root),'config','--local','user.name','Fixture'],check=True)
+    subprocess.run(['git','-C',str(root),'config','--local','user.email','fixture@example.invalid'],check=True)
     for name,text in files.items():
         p=root/name;p.parent.mkdir(parents=True,exist_ok=True);p.write_text(text)
     subprocess.run(['git','-C',str(root),'add','.'],check=True)
