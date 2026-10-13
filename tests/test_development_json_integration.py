@@ -79,10 +79,14 @@ class JsonCompilerBoundary(unittest.TestCase):
         wrong_route=copy.deepcopy(self.schedule);wrong_route['lowering']['backend']='native_cuda'
         wrong_abi=copy.deepcopy(self.schedule)
         next(b for b in wrong_abi['buffers'] if b['mode']=='input')['shape'][0]+=1
-        for document in (wrong_target,wrong_route,wrong_abi,{'reason':'applied','paths':[]}):
+        for document,rule in ((wrong_target,'Schedule Workload binding'),
+                              (wrong_route,'Schedule lowering route'),
+                              (wrong_abi,'Schedule external tensor contract'),
+                              ({'reason':'applied','paths':[]},'Schedule lowering route')):
             result,_,_,requests=self.run_candidate(document,'invalid-json')
             self.assertEqual(result['status'],'rejected')
             self.assertEqual(result['feedback']['stage'],'assessment')
+            self.assertIn(rule,result['feedback']['error'])
             self.assertEqual(requests,[])
 
     def test_empty_and_malformed_sources_return_feedback_without_compilation(self):
