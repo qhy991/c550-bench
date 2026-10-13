@@ -27,7 +27,7 @@ class JsonCompilerBoundary(unittest.TestCase):
         cls.schedule=frontend.parse(starter).document
         cls.program=candidate_program(json.dumps({'python_source':starter}).encode()).document
 
-    def run_candidate(self,document,identity,*,compact=False):
+    def run_candidate(self,document,identity,*,compact=False,raw_text=None):
         from open_cake_ir.lab.faults import CandidateCompileRejected
         compiler=self.compiler
         class CompileProbe:
@@ -47,8 +47,8 @@ class JsonCompilerBoundary(unittest.TestCase):
             write('authority.json',{'evaluation_protocol':{},'authoring':{
                 'input_format':'schedule_or_python_v1',
                 'lowering_route':self.schedule['lowering']}})
-            raw=json.dumps(document,indent=None if compact else 2,
-                           separators=(',',':') if compact else None).encode()
+            raw=(raw_text if raw_text is not None else json.dumps(document,
+                indent=None if compact else 2,separators=(',',':') if compact else None)).encode()
             candidate=campaign/'candidates/own.json';candidate.write_bytes(raw)
             with (patch('tools.launch_task._admit_stack',return_value=(compiler,None,None,'cpu-probe')),
                   patch('tools.launch_task._triton_builder',return_value=probe)):
@@ -83,6 +83,14 @@ class JsonCompilerBoundary(unittest.TestCase):
             result,_,_,requests=self.run_candidate(document,'invalid-json')
             self.assertEqual(result['status'],'rejected')
             self.assertEqual(result['feedback']['stage'],'assessment')
+            self.assertEqual(requests,[])
+
+    def test_empty_and_malformed_sources_return_feedback_without_compilation(self):
+        for text in ('','{"schedule_id":\n}'):
+            result,raw,retained,requests=self.run_candidate(None,'malformed',raw_text=text)
+            self.assertEqual(result['status'],'rejected')
+            self.assertEqual(result['feedback']['code'],'CAKE_JSON_INVALID')
+            self.assertEqual(retained,raw)
             self.assertEqual(requests,[])
 
 
