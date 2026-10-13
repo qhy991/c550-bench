@@ -54,12 +54,12 @@ def submit(root, candidate, identity, phase, route):
 
 
 def execute(root, request, env, remaining, folder):
+    from development.controller_entry import controller_command
     with (folder / 'controller.log').open('x') as log:
-        process = subprocess.Popen([
-            sys.executable, '-m', 'development.owner_evaluation',
+        process = subprocess.Popen(controller_command(root,'evaluate',
             '--candidate', request['candidate'], '--id', request['id'],
             '--phase', request['phase'], '--route', request['route'],
-        ], cwd=root, env=env, stdout=log, stderr=subprocess.STDOUT,start_new_session=True)
+        ), cwd=root, env=env, stdout=log, stderr=subprocess.STDOUT,start_new_session=True)
         try:return process.wait(timeout=remaining)
         except subprocess.TimeoutExpired:
             os.killpg(process.pid,signal.SIGTERM)

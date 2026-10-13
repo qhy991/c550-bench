@@ -75,6 +75,7 @@ def prepare(plan_path: Path, host: str, output: Path, *, repository: Path | None
             subprocess.run(["git", "-C", str(run), "config", "--local", key, value], check=True)
         (run / ".deps").mkdir()
         (run / ".deps/cake-ir").symlink_to(compiler_root, target_is_directory=True)
+        (run / ".deps/launcher").symlink_to(adapter_root, target_is_directory=True)
         for name in ("candidates", "compiler-actions", "evaluations", "native-engineering",
                      "management", "logs"):
             (run / "campaign" / name).mkdir(parents=True, exist_ok=True)

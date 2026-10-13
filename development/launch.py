@@ -91,6 +91,7 @@ def release_verified(root=ROOT,proc_root=Path('/proc')):
     return not live_task_processes(root,proc_root)
 
 def main(argv=None):
+    from development.controller_entry import controller_command
     check=(argv or sys.argv[1:])==['--check']
     if (argv or sys.argv[1:]) not in ([],['--check']):raise ValueError('launch accepts only --check')
     binding=read(ROOT/'campaign/development-binding.json')
@@ -112,7 +113,7 @@ def main(argv=None):
     error=None;model_exit=None;confirmation=None
     try:
         with (ROOT/'campaign/logs/preparation.log').open('x') as log:
-            subprocess.run([sys.executable,'-m','development.runtime','prepare'],env=env,
+            subprocess.run(controller_command(ROOT,'prepare'),env=env,
                            stdout=log,stderr=subprocess.STDOUT,check=True,
                            timeout=max(1,deadline['search_stop_at_epoch']-time.time()))
         remaining=max(1,int(deadline['search_stop_at_epoch']-time.time()))

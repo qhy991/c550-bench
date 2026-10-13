@@ -14,6 +14,7 @@ from development.queue import DevelopmentQueue, reconcile
 from development.launch import hmz_command, release_verified, select_nominee
 from development.submission import abandon_pending, execute, service, validate as validate_request
 from development.owner_evaluation import require_owner
+from development.controller_entry import SOURCE, controller_command
 
 ROOT=Path(__file__).resolve().parents[1]
 TASKS=json.loads((ROOT/'development/tasks.json').read_text())['tasks']
@@ -270,6 +271,21 @@ class EvaluationSubmissionTests(unittest.TestCase):
             path.return_value.__truediv__.return_value.read_bytes.return_value=(
                 sys.executable.encode()+b'\0-c\0arbitrary_parent_code\0-m\0development.launch\0')
             with self.assertRaises(PermissionError):require_owner(Path('/tmp/task'))
+
+    def test_controller_imports_ignore_task_local_evaluator_replacement(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);(root/'development').mkdir()
+            (root/'development/__init__.py').write_text('')
+            for module in ('runtime','owner_evaluation','submission','launch'):
+                (root/f'development/{module}.py').write_text('raise RuntimeError("author replacement executed")')
+            code=('import sys;sys.path.insert(0,sys.argv[1]);'
+                  'from development import runtime,owner_evaluation,submission,launch;'
+                  'print(runtime.__file__)')
+            result=subprocess.check_output([sys.executable,'-I','-c',code,str(SOURCE)],
+                                           cwd=root,text=True).strip()
+            self.assertEqual(Path(result),SOURCE/'development/runtime.py')
+            command=controller_command(root,'evaluate')
+            self.assertEqual(command[:3],[sys.executable,'-I',str(SOURCE/'development/controller_entry.py')])
 
     def test_evaluation_timeout_terminates_its_process_group(self):
         with tempfile.TemporaryDirectory() as directory:

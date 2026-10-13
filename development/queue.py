@@ -26,8 +26,9 @@ class ContainerLauncher:
     def __init__(self,namespace,container,python):
         self.namespace=namespace;self.container=container;self.python=python
     def start(self,run,claim,state):
+        entry=(Path(run['root'])/'.deps/launcher/development/controller_entry.py').resolve(strict=True)
         root=Path(run['root']);command=['/usr/local/bin/nerdctl','-n',self.namespace,'exec',
-            '--workdir',str(root),self.container,self.python,'-m','development.launch']
+            '--workdir',str(root),self.container,self.python,'-I',str(entry),'--root',str(root),'launch']
         write_new(state/'commands'/(run['task']+'.json'),command)
         out=(state/'logs'/(run['task']+'.stdout')).open('x');err=(state/'logs'/(run['task']+'.stderr')).open('x')
         process=subprocess.Popen(command,stdout=out,stderr=err,start_new_session=True)
