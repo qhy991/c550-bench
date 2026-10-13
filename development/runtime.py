@@ -53,7 +53,6 @@ def prepare(root: Path) -> dict:
     compiler,executor,host,compiler_ref=_admit_stack(source,preparation,
                                                       workload.target,'triton')
     authoring['compiler_revision']=compiler_ref
-    authoring['toolchain_sha256']=__import__('tools.launch_task',fromlist=['_triton_builder'])._triton_builder(executor,workload).canonical_sha256
     bundle=_prepare_baseline(source,preparation,compiler,executor,host,
                              workload,authoring,starter.read_text(),compiler_ref,'triton')
     baseline=load_baseline_bundle(source,bundle)
