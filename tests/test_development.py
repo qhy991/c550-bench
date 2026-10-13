@@ -121,6 +121,9 @@ class DevelopmentPreparation(unittest.TestCase):
             '-a','agent=claude/glm-5.3:high','-p',
             'budget.duration=9720,budget.graceful=false','author task'])
         self.assertNotIn('-c',command)
+        flow=(ROOT/'development/ralph_flow.py').read_text()
+        self.assertIn('resumable=True',flow)
+        self.assertIn('max_rounds',flow)
 
     def test_nomination_requires_one_candidate_identity(self):
         with tempfile.TemporaryDirectory() as directory:
