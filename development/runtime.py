@@ -134,7 +134,7 @@ def evaluate(root: Path, candidate: Path, identity: str, phase: str, route: str)
     if time.time()>=cutoff: raise TimeoutError('task phase budget is closed')
     if not identity or not identity.replace('-','').replace('_','').isalnum(): raise ValueError('invalid evaluation id')
     output=root/'campaign/evaluations'/identity
-    output.mkdir(exist_ok=False)
+    output.mkdir(parents=True,exist_ok=False)
     candidate_path=candidate.resolve(strict=True)
     try:
         candidate_relative=str(candidate_path.relative_to(root))
