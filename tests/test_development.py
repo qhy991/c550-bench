@@ -7,6 +7,7 @@ import unittest
 from development.binding import SKILLS, TARGET, validate
 from development.prepare import prepare
 from development.runtime import load_local_baseline, native_plan
+from development.queue import DevelopmentQueue
 
 ROOT=Path(__file__).resolve().parents[1]
 TASKS=json.loads((ROOT/'development/tasks.json').read_text())['tasks']
@@ -111,5 +112,38 @@ class DevelopmentPreparation(unittest.TestCase):
             foreign=root/'foreign.json';foreign.write_text('{}')
             with self.assertRaisesRegex(ValueError,'escapes'):
                 load_local_baseline(root,foreign)
+
+
+class _Immediate:
+    def poll(self): return 0
+
+
+class _QueueLauncher:
+    def __init__(self): self.active=0;self.maximum=0;self.started=[]
+    def start(self,run,claim,state):
+        self.active+=1;self.maximum=max(self.maximum,self.active);self.started.append(run['task'])
+        return _Immediate()
+    def terminal(self,run,handle,code):
+        self.active-=1
+        return {'task':run['task'],'exit_code':code,'done':{'terminal':True},'release_verified':True}
+
+
+class DevelopmentQueueTests(unittest.TestCase):
+    def test_two_authors_share_one_device_without_duplicate_claims(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);runs=[]
+            for task in ('a','b','c'):
+                path=root/task;binding={'task':task,'root':str(path),'device':{'physical_device':2}}
+                commit=repository(path,{'campaign/development-binding.json':json.dumps(binding)})
+                runs.append({**binding,'prepared_commit':commit})
+            allocation=root/'allocation.json';allocation.write_text(json.dumps({
+                'kind':'c550_hmz_development_allocation','runs':runs}))
+            launcher=_QueueLauncher();result=DevelopmentQueue(
+                allocation,root/'state',launcher,sleeper=lambda _:None).run()
+            self.assertEqual(result,{'assigned':3,'started':3,'terminal':3,'blocked_devices':[]})
+            self.assertEqual(launcher.maximum,2)
+            self.assertEqual(len(list((root/'state/claims').glob('*.json'))),3)
+            with self.assertRaises(FileExistsError):
+                DevelopmentQueue(allocation,root/'state',launcher).run()
 
 if __name__=='__main__':unittest.main()
