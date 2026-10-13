@@ -82,6 +82,7 @@ def prepare(plan_path: Path, host: str, output: Path, *, repository: Path | None
                 raise ValueError(f"retained {key} is unavailable for {row['task']}")
         shutil.copyfile(source["workload"], run / "campaign/original-workload.json")
         shutil.copyfile(source["starter"], run / "campaign/candidates/starter.py")
+        shutil.copyfile(source["prior_run"], run / "campaign/prior-run.json")
         shutil.copyfile(adapter, run / "campaign/compiler_tools.py")
         binding = {
             "schema_version": 1,

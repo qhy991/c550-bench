@@ -47,7 +47,7 @@ def prepare(root: Path) -> dict:
     workload_path=root/'campaign/original-workload.json';starter=root/'campaign/candidates/starter.py'
     workload=load_workload(workload_path)
     if workload.target!='xcore1002': raise ValueError('development Workload target differs')
-    prior=json.loads(Path(binding['source_provenance']['prior_run']).read_text())
+    prior=json.loads((root/'campaign/prior-run.json').read_text())
     protocol=prior['evaluation_protocol'];authoring=json.loads(json.dumps(prior['authoring']))
     preparation=root/'campaign/baseline-preparation';preparation.mkdir(exist_ok=False)
     compiler,executor,host,compiler_ref=_admit_stack(source,preparation,

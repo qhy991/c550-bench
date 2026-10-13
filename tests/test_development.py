@@ -65,6 +65,7 @@ class DevelopmentPreparation(unittest.TestCase):
             self.assertIn('$evolve',task);self.assertIn('$metax-c550-hardware-exploration',task)
             self.assertIn('separate',task.lower());self.assertIn('native Triton',task)
             self.assertTrue((run/'campaign/compiler-api.json').is_file())
+            self.assertEqual(json.loads((run/'campaign/prior-run.json').read_text()),{})
             self.assertTrue((run/'.deps/cake-ir/skills/evolve/SKILL.md').is_file())
             self.assertFalse((run/'campaign/deadline.json').exists())
             self.assertFalse((run/'campaign/intake.json').exists())
