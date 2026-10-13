@@ -209,7 +209,8 @@ def evaluate(root: Path, candidate: Path, identity: str, phase: str, route: str)
                 'source_sha256':source_sha256,'candidate_sha256':submission.sha256,
                 'candidate_path':candidate_relative,'completed_at_epoch':time.time()}
             write_new(output/'outcome.json',result);return result
-        submission=CandidateSubmission.seal(environment.media_type,canonical_json_bytes(payload))
+        submission=CandidateSubmission.seal(environment.media_type,
+            candidate_bytes if candidate_path.suffix=='.json' else canonical_json_bytes(payload))
     else:
         native_plan(root,candidate_path,binding)
         starter=frontend.read_schedule(root/'campaign/candidates/starter.py').document
