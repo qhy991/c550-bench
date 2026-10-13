@@ -27,7 +27,7 @@ def host_rows(path, host):
     for row in rows:
         if row.get("execution_host") != host or row.get("task") not in TASKS:
             raise ValueError("retained row differs from its host/task denominator")
-        required=("workload","starter","old_run","prepared_baseline")
+        required=("workload","starter","run","prepared_baseline")
         if any(not isinstance(row.get(name),str) or not Path(row[name]).is_absolute() for name in required):
             raise ValueError("retained task source paths differ")
         result.append(row)
@@ -66,7 +66,7 @@ def main():
             'root':str(Path(hosts[host]['owner_root'])/row['task']),
             'device':hosts[host]['devices'][physical],
             'source':{'workload':row['workload'],'starter':row['starter'],
-                      'prior_run':row['old_run'],
+                      'prior_run':row['run'],
                       'prepared_baseline':row['prepared_baseline']}})
     document={'schema_version':1,'kind':'c550_hmz_development_round','target':'xcore1002',
         'compiler_commit':a.compiler_commit,'adapter_commit':a.adapter_commit,
