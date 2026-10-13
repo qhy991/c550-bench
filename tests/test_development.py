@@ -103,6 +103,7 @@ class DevelopmentPreparation(unittest.TestCase):
     def test_successor_excludes_claimed_opportunities_even_before_intake(self):
         with tempfile.TemporaryDirectory() as directory:
             root,path,plan=self.inputs(directory);state=root/'previous-state';(state/'claims').mkdir(parents=True)
+            for name in ('commands','owners','logs','terminals'):(state/name).mkdir()
             rows=[r for r in plan['assignments'] if r['host']=='c550-2'];runs=[]
             for row in rows:
                 old=root/'previous-runs'/row['task'];old.parent.mkdir(exist_ok=True)
@@ -121,7 +122,7 @@ class DevelopmentPreparation(unittest.TestCase):
             selected,excluded=unclaimed(path,'c550-2',previous,state,ROOT)
             self.assertEqual(excluded,frozenset({consumed}))
             self.assertNotIn(consumed,selected)
-            (state/'claims'/f'{consumed}.json').unlink();(state/'commands').mkdir()
+            (state/'claims'/f'{consumed}.json').unlink()
             (state/'commands'/f'{consumed}.json').write_text('[]')
             selected,excluded=unclaimed(path,'c550-2',previous,state,ROOT)
             self.assertNotIn(consumed,selected)
@@ -130,6 +131,12 @@ class DevelopmentPreparation(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,'binding'):
                 unclaimed(path,'c550-2',previous,state,ROOT)
             old_binding.write_text(saved)
+            terminal=state/'terminals'/f'{second}.json'
+            terminal.write_text(json.dumps({'task':'foreign','error':'unstarted_owner_exit',
+                'done':None,'exit_code':None,'release_verified':False,'reconciled_after_owner_exit':True}))
+            with self.assertRaisesRegex(ValueError,'terminal task'):
+                unclaimed(path,'c550-2',previous,state,ROOT)
+            terminal.unlink()
             original_route=rows[1]['device']
             rows[1]['device']=plan['hosts']['c550-2']['devices'][7]
             path.write_text(json.dumps(plan))

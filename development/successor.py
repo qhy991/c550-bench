@@ -11,8 +11,8 @@ from development.queue import process_alive
 def unclaimed(plan_path, host, previous_allocation, previous_state, repository):
     plan=read(Path(plan_path));rows=validate(plan,Path(repository));old=read(Path(previous_allocation))
     state=Path(previous_state);launch=read(state/'LAUNCH.json')
-    if not (state/'claims').is_dir():
-        raise ValueError('predecessor claim custody is unavailable')
+    if any(not (state/name).is_dir() for name in ('claims','commands','owners','logs','terminals')):
+        raise ValueError('predecessor execution custody is unavailable')
     if (old.get('kind')!='c550_hmz_development_allocation' or old.get('host')!=host
             or old.get('compiler')!=plan['compiler_commit']):
         raise ValueError('predecessor allocation differs from the host and Compiler')
@@ -49,8 +49,15 @@ def unclaimed(plan_path, host, previous_allocation, previous_state, repository):
     for path in (state/'terminals').glob('*.json'):
         value=read(path)
         if path.stem not in previous:raise ValueError('foreign predecessor terminal')
-        if not (value.get('error') in {'unstarted_owner_exit','unstarted_release_blocked'}
-                and value.get('done') is None and value.get('exit_code') is None):
+        if value.get('task')!=path.stem:raise ValueError('predecessor terminal task differs')
+        keys={'task','exit_code','done','release_verified','error'}
+        if value.get('error')=='unstarted_owner_exit':keys.add('reconciled_after_owner_exit')
+        if not (set(value)==keys
+                and value.get('error') in {'unstarted_owner_exit','unstarted_release_blocked'}
+                and value.get('done') is None and value.get('exit_code') is None
+                and value.get('release_verified') is False
+                and (value.get('error')!='unstarted_owner_exit'
+                     or value.get('reconciled_after_owner_exit') is True)):
             claimed.add(path.stem)
     for task,run in previous.items():
         root=Path(run['root'])/'campaign'
