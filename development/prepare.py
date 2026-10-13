@@ -89,6 +89,7 @@ def prepare(plan_path: Path, host: str, output: Path, *, repository: Path | None
             "sequence": sequence,
             "task": row["task"],
             "host": host,
+            "home": config["home"],
             "root": str(run),
             "compiler": plan["compiler_commit"],
             "adapter_commit": plan["adapter_commit"],

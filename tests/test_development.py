@@ -6,6 +6,7 @@ import unittest
 
 from development.binding import SKILLS, TARGET, validate
 from development.prepare import prepare
+from development.runtime import native_plan
 
 ROOT=Path(__file__).resolve().parents[1]
 TASKS=json.loads((ROOT/'development/tasks.json').read_text())['tasks']
@@ -58,6 +59,7 @@ class DevelopmentPreparation(unittest.TestCase):
             root,path,plan=self.inputs(d);output=root/'allocation.json'
             allocation=prepare(path,'c550-1',output,repository=ROOT)
             self.assertEqual(len(allocation['runs']),1)
+            self.assertEqual(allocation['runs'][0]['home'],plan['hosts']['c550-1']['home'])
             run=Path(allocation['runs'][0]['root'])
             task=(run/'campaign/TASK.md').read_text()
             self.assertIn('$evolve',task);self.assertIn('$metax-c550-hardware-exploration',task)
@@ -85,5 +87,21 @@ class DevelopmentPreparation(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,'skill'):
                 prepare(path,'c550-1',root/'allocation.json',repository=ROOT)
             self.assertFalse(Path(plan['assignments'][0]['root']).exists())
+
+    def test_native_route_requires_a_retained_own_cake_candidate_and_exact_split(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory).resolve();cake=root/'campaign/candidates/cake.py'
+            native=root/'campaign/native-engineering/trial';native.mkdir(parents=True)
+            cake.parent.mkdir(parents=True);cake.write_text('# retained Cake hypothesis\n')
+            candidate=native/'candidate.json';candidate.write_text('{}')
+            plan={'schema_version':1,'route':'native_triton','task':'rmsnorm','target':'xcore1002',
+                  'cake_candidate':'campaign/candidates/cake.py',
+                  'missing_commitment':'Cake cannot express the measured instruction choice',
+                  'same_contract':True,'shares_task_deadline':True}
+            (native/'plan.json').write_text(json.dumps(plan))
+            self.assertEqual(native_plan(root,candidate,{'task':'rmsnorm'}),plan)
+            plan['same_contract']=False;(native/'plan.json').write_text(json.dumps(plan))
+            with self.assertRaisesRegex(ValueError,'route split'):
+                native_plan(root,candidate,{'task':'rmsnorm'})
 
 if __name__=='__main__':unittest.main()
