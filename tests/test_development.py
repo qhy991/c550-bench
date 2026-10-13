@@ -477,7 +477,7 @@ class CandidateConstructionFeedbackTests(unittest.TestCase):
     def test_invalid_json_is_localized_feedback_and_never_a_python_submission(self):
         def python_only(*args,**kwargs):
             raise AssertionError('JSON must not enter the Python frontend')
-        for text in ('{"schedule_id":\n}', '[]', '{"number":NaN}', '{"number":1e400}'):
+        for text in ('', '{"schedule_id":\n}', '[]', '{"number":NaN}', '{"number":1e400}'):
             payload,feedback=parse_cake_submission(text,'own.json',python_only,ValueError)
             self.assertIsNone(payload)
             self.assertEqual(feedback['stage'],'submission')

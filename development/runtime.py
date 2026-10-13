@@ -202,7 +202,8 @@ def evaluate(root: Path, candidate: Path, identity: str, phase: str, route: str)
             workload=workload,case_id='primary',executor=executor)
         if feedback is not None:
             submission=CandidateSubmission.seal(environment.media_type,
-                candidate_bytes if candidate_path.suffix=='.json' else canonical_json_bytes({'python_source':text}))
+                (candidate_bytes or canonical_json_bytes(text)) if candidate_path.suffix=='.json'
+                else canonical_json_bytes({'python_source':text}))
             write_new(output/'build.json',{'route':route,'disposition':'rejected','feedback':feedback})
             result={'status':'rejected','route':route,'phase':phase,'feedback':feedback,
                 'source_sha256':source_sha256,'candidate_sha256':submission.sha256,
