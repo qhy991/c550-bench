@@ -3,12 +3,13 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from development.binding import SKILLS, TARGET, validate
 from development.prepare import prepare
 from development.runtime import load_local_baseline, native_plan
-from development.queue import DevelopmentQueue
-from development.launch import hmz_command
+from development.queue import DevelopmentQueue, reconcile
+from development.launch import hmz_command, release_verified, select_nominee
 
 ROOT=Path(__file__).resolve().parents[1]
 TASKS=json.loads((ROOT/'development/tasks.json').read_text())['tasks']
@@ -121,6 +122,31 @@ class DevelopmentPreparation(unittest.TestCase):
             'budget.duration=9720,budget.graceful=false','author task'])
         self.assertNotIn('-c',command)
 
+    def test_nomination_requires_one_candidate_identity(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);evaluations=root/'campaign/evaluations'
+            for name,phase,source in (('search','search','a'*64),('profile','attribution','b'*64)):
+                path=evaluations/name;path.mkdir(parents=True)
+                (path/'outcome.json').write_text(json.dumps({'phase':phase,'status':'accepted',
+                    'candidate_path':'campaign/candidates/x.py','route':'cake',
+                    'source_sha256':source,'candidate_sha256':'c'*64,
+                    'timing':{'pooled_means_ms':{'candidate':1.0},'measurement_quality_passed':True}}))
+            with patch('development.launch.ROOT',root):self.assertIsNone(select_nominee())
+            row=json.loads((evaluations/'profile/outcome.json').read_text());row['source_sha256']='a'*64
+            (evaluations/'profile/outcome.json').write_text(json.dumps(row))
+            with patch('development.launch.ROOT',root):self.assertEqual(select_nominee()[1],'search')
+
+    def test_release_is_scoped_to_this_task_not_the_shared_device(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base=Path(directory).resolve();root=base/'task';other=base/'other';proc=base/'proc'
+            root.mkdir();other.mkdir();(proc/'123').mkdir(parents=True)
+            (proc/'123/cwd').symlink_to(other);(proc/'123/cmdline').write_bytes(b'other')
+            self.assertTrue(release_verified(root,proc))
+            (proc/'123/cmdline').write_bytes(str(root.parent/(root.name+'_sibling')).encode())
+            self.assertTrue(release_verified(root,proc))
+            (proc/'123/cwd').unlink();(proc/'123/cwd').symlink_to(root)
+            self.assertFalse(release_verified(root,proc))
+
 
 class _Immediate:
     def poll(self): return 0
@@ -153,5 +179,26 @@ class DevelopmentQueueTests(unittest.TestCase):
             self.assertEqual(len(list((root/'state/claims').glob('*.json'))),3)
             with self.assertRaises(FileExistsError):
                 DevelopmentQueue(allocation,root/'state',launcher).run()
+
+    def test_dead_owner_reconciliation_seals_started_and_unstarted_tasks(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);runs=[]
+            for task in ('started','unstarted'):
+                path=root/task;binding={'task':task,'root':str(path),'device':{'physical_device':2}}
+                commit=repository(path,{'campaign/development-binding.json':json.dumps(binding)})
+                runs.append({**binding,'prepared_commit':commit})
+            allocation=root/'allocation.json';allocation.write_text(json.dumps({
+                'kind':'c550_hmz_development_allocation','runs':runs}))
+            state=root/'state'
+            for name in ('claims','commands','owners','logs','terminals'):(state/name).mkdir(parents=True)
+            (state/'LAUNCH.json').write_text(json.dumps({'owner_pid':99999999,'owner_start_ticks':'0'}))
+            (state/'claims/started.json').write_text('{}')
+            done={'terminal':True,'device_release_verified':True}
+            (root/'started/campaign/DONE.json').write_text(json.dumps(done))
+            result=reconcile(allocation,state)
+            self.assertEqual(result['terminal'],2)
+            self.assertEqual(json.loads((state/'terminals/started.json').read_text())['done'],done)
+            self.assertEqual(json.loads((state/'terminals/unstarted.json').read_text())['error'],
+                             'unstarted_owner_exit')
 
 if __name__=='__main__':unittest.main()

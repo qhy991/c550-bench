@@ -1,6 +1,7 @@
 """Own one external-HMZ task deadline, author loop, confirmation and release."""
 from __future__ import annotations
-import fcntl,json,os,signal,subprocess,sys,time
+from hashlib import sha256
+import json,os,signal,subprocess,sys,time
 from pathlib import Path
 
 ROOT=Path.cwd().resolve()
@@ -44,24 +45,41 @@ def select_nominee():
     profiles={}
     for p in (ROOT/'campaign/evaluations').glob('*/outcome.json'):
         row=read(p)
-        if row.get('phase')=='attribution' and row.get('status')=='accepted': profiles[(row.get('candidate_path'),row.get('route'))]=p.parent.name
+        key=(row.get('candidate_path'),row.get('route'),row.get('source_sha256'),row.get('candidate_sha256'))
+        if (row.get('phase')=='attribution' and row.get('status')=='accepted'
+                and all(isinstance(value,str) for value in key)):
+            profiles[key]=p.parent.name
     rows=[]
     for p in (ROOT/'campaign/evaluations').glob('*/outcome.json'):
-        row=read(p);timing=row.get('timing') or {};key=(row.get('candidate_path'),row.get('route'))
+        row=read(p);timing=row.get('timing') or {}
+        key=(row.get('candidate_path'),row.get('route'),row.get('source_sha256'),row.get('candidate_sha256'))
         mean=(timing.get('pooled_means_ms') or {}).get('candidate')
         if row.get('phase')=='search' and row.get('status')=='accepted' and timing.get('measurement_quality_passed') is True and isinstance(mean,(int,float)) and key in profiles:
             rows.append((mean,p.parent.name,row,profiles[key]))
     return min(rows,key=lambda x:x[0]) if rows else None
 
-def release_verified(binding):
-    lock=Path(f"/tmp/open-cake-ir-maca-0-device-{binding['device']['physical_device']}.lock")
-    with lock.open('a') as f:
-        try:fcntl.flock(f,fcntl.LOCK_EX|fcntl.LOCK_NB)
-        except BlockingIOError:return False
-        finally:
-            try:fcntl.flock(f,fcntl.LOCK_UN)
-            except OSError:pass
-    return True
+def mentions_root(command,needle):
+    start=0
+    while True:
+        index=command.find(needle,start)
+        if index<0:return False
+        after=index+len(needle)
+        if after==len(command) or command[after] in b'/\0\" ,}]:':return True
+        start=after
+
+def live_task_processes(root=ROOT,proc_root=Path('/proc')):
+    own=os.getpid();found=[];needle=str(root).encode()
+    if not proc_root.is_dir():raise RuntimeError('process custody is unavailable')
+    for proc in proc_root.iterdir():
+        if not proc.name.isdigit() or int(proc.name)==own:continue
+        try:
+            cwd=os.readlink(proc/'cwd').encode();command=(proc/'cmdline').read_bytes()
+        except (FileNotFoundError,PermissionError,ProcessLookupError,OSError):continue
+        if cwd==needle or cwd.startswith(needle+b'/') or mentions_root(command,needle):found.append(int(proc.name))
+    return sorted(found)
+
+def release_verified(root=ROOT,proc_root=Path('/proc')):
+    return not live_task_processes(root,proc_root)
 
 def main(argv=None):
     check=(argv or sys.argv[1:])==['--check']
@@ -95,17 +113,28 @@ def main(argv=None):
         nominee=select_nominee()
         if nominee:
             _,search_id,row,profile_id=nominee;candidate=row['candidate_path'];route=row['route']
-            seconds=max(1,int(deadline['stop_at_epoch']-time.time()))
-            with (ROOT/'campaign/logs/confirmation.log').open('x') as log:
-                code=subprocess.call(['/usr/bin/timeout','--signal=TERM','--kill-after=15s',str(seconds)+'s',
-                    sys.executable,'-m','development.runtime','evaluate','--candidate',candidate,
-                    '--id','final-confirmation','--phase','confirmation','--route',route],env=env,stdout=log,stderr=subprocess.STDOUT)
-            path=ROOT/'campaign/evaluations/final-confirmation/outcome.json'
-            confirmation=read(path) if path.exists() else {'status':'missing','exit_code':code}
-        released=release_verified(binding)
+            current=sha256((ROOT/candidate).read_bytes()).hexdigest()
+            if current!=row['source_sha256']:
+                confirmation={'status':'candidate_changed_before_confirmation',
+                    'search_id':search_id,'profile_id':profile_id,
+                    'expected_source_sha256':row['source_sha256'],'observed_source_sha256':current}
+            else:
+                seconds=max(1,int(deadline['stop_at_epoch']-time.time()))
+                with (ROOT/'campaign/logs/confirmation.log').open('x') as log:
+                    code=subprocess.call(['/usr/bin/timeout','--signal=TERM','--kill-after=15s',str(seconds)+'s',
+                        sys.executable,'-m','development.runtime','evaluate','--candidate',candidate,
+                        '--id','final-confirmation','--phase','confirmation','--route',route],env=env,stdout=log,stderr=subprocess.STDOUT)
+                path=ROOT/'campaign/evaluations/final-confirmation/outcome.json'
+                confirmation=read(path) if path.exists() else {'status':'missing','exit_code':code}
+                if (confirmation.get('source_sha256')!=row['source_sha256']
+                        or confirmation.get('candidate_sha256')!=row['candidate_sha256']):
+                    confirmation={'status':'candidate_identity_mismatch',
+                        'search_id':search_id,'profile_id':profile_id,'observed':confirmation}
+        live=live_task_processes();released=not live
         status='completed' if confirmation and confirmation.get('status')=='accepted' and released else 'no_qualified_result'
         write_new(ROOT/'campaign/DONE.json',{'terminal':True,'status':status,'model_exit':model_exit,
-            'device_release_verified':released,'confirmation':confirmation})
+            'device_release_verified':released,'release_basis':'no_live_task_processes',
+            'live_task_processes':live,'confirmation':confirmation})
         return 0
     except Exception as exc:
         error=type(exc).__name__+': '+str(exc);raise

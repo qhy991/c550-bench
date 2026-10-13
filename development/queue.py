@@ -10,6 +10,16 @@ def write_new(path,value):
     with path.open('x') as f:json.dump(value,f,indent=2,sort_keys=True);f.write('\n')
 def read(path):return json.loads(Path(path).read_text())
 def git(root,*args):return subprocess.check_output(['git','-C',str(root),*args],text=True).strip()
+def process_start_ticks(pid):
+    try:return Path(f'/proc/{pid}/stat').read_text().split()[21]
+    except (FileNotFoundError,ProcessLookupError,PermissionError,OSError):return None
+def process_alive(identity):
+    pid=identity.get('pid');ticks=identity.get('start_ticks')
+    if not isinstance(pid,int):return False
+    current=process_start_ticks(pid)
+    if isinstance(ticks,str) and current is not None:return current==ticks
+    try:os.kill(pid,0);return True
+    except (ProcessLookupError,PermissionError,OSError):return False
 
 
 class ContainerLauncher:
@@ -22,7 +32,7 @@ class ContainerLauncher:
         out=(state/'logs'/(run['task']+'.stdout')).open('x');err=(state/'logs'/(run['task']+'.stderr')).open('x')
         process=subprocess.Popen(command,stdout=out,stderr=err,start_new_session=True)
         write_new(state/'owners'/(run['task']+'.json'),{'pid':process.pid,
-            'start_ticks':Path(f'/proc/{process.pid}/stat').read_text().split()[21]})
+            'start_ticks':process_start_ticks(process.pid)})
         return process
     def terminal(self,run,process,code):
         done=Path(run['root'])/'campaign/DONE.json'
@@ -52,7 +62,9 @@ class DevelopmentQueue:
         with (self.state/'owner.lock').open('x') as lock:
             fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
             write_new(self.state/'LAUNCH.json',{'owner_pid':os.getpid(),'started_at_epoch':time.time(),
-                'tasks':len(self.document['runs']),'capacity_per_device':2,'automatic_retries':0})
+                'owner_start_ticks':process_start_ticks(os.getpid()),
+                'allocation':str(self.allocation),'tasks':len(self.document['runs']),
+                'capacity_per_device':2,'automatic_retries':0})
             pending=list(self.document['runs']);active={};blocked=set()
             while pending or active:
                 for task,(run,handle) in list(active.items()):
@@ -90,9 +102,47 @@ class DevelopmentQueue:
             write_new(self.state/'DONE.json',summary);return summary
 
 
+def reconcile(allocation,state):
+    """Seal every assignment after a dead owner, without starting or retrying work."""
+    allocation=Path(allocation).resolve(strict=True);state=Path(state).resolve(strict=True)
+    document=read(allocation);launch=read(state/'LAUNCH.json')
+    if document.get('kind')!='c550_hmz_development_allocation':raise ValueError('unsupported allocation')
+    if (state/'DONE.json').exists():raise FileExistsError('queue is already terminal')
+    owner={'pid':launch.get('owner_pid'),'start_ticks':launch.get('owner_start_ticks')}
+    if process_alive(owner):raise ValueError('queue owner is still live')
+    for path in (state/'owners').glob('*.json'):
+        if process_alive(read(path)):raise ValueError('claimed task process is still live')
+    blocked=set()
+    for run in document['runs']:
+        task=run['task'];terminal=state/'terminals'/(task+'.json')
+        if terminal.exists():continue
+        claimed=(state/'claims'/(task+'.json')).exists();done=Path(run['root'])/'campaign/DONE.json'
+        if claimed and done.is_file():
+            result=read(done);released=result.get('device_release_verified') is True
+            row={'task':task,'exit_code':None,'done':result,'release_verified':released,
+                 'reconciled_after_owner_exit':True}
+            if not released:blocked.add(run['device']['physical_device'])
+        else:
+            row={'task':task,'exit_code':None,'done':None,'release_verified':False,
+                 'error':'unknown_owner_exit' if claimed else 'unstarted_owner_exit',
+                 'reconciled_after_owner_exit':True}
+            if claimed:blocked.add(run['device']['physical_device'])
+        write_new(terminal,row)
+    summary={'assigned':len(document['runs']),
+        'started':len(list((state/'claims').glob('*.json'))),
+        'terminal':len(list((state/'terminals').glob('*.json'))),
+        'blocked_devices':sorted(blocked),'reconciled_after_owner_exit':True}
+    write_new(state/'DONE.json',summary);return summary
+
+
 def main():
     p=argparse.ArgumentParser();p.add_argument('--allocation',type=Path,required=True);p.add_argument('--state',type=Path,required=True)
-    p.add_argument('--namespace',required=True);p.add_argument('--container',required=True);p.add_argument('--python',required=True)
-    a=p.parse_args();print(json.dumps(DevelopmentQueue(a.allocation,a.state,
-        ContainerLauncher(a.namespace,a.container,a.python)).run(),indent=2))
+    p.add_argument('--namespace');p.add_argument('--container');p.add_argument('--python');p.add_argument('--reconcile',action='store_true')
+    a=p.parse_args()
+    if a.reconcile:result=reconcile(a.allocation,a.state)
+    else:
+        if not all((a.namespace,a.container,a.python)):p.error('launch requires --namespace, --container and --python')
+        result=DevelopmentQueue(a.allocation,a.state,
+            ContainerLauncher(a.namespace,a.container,a.python)).run()
+    print(json.dumps(result,indent=2))
 if __name__=='__main__':main()

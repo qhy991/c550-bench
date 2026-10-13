@@ -150,6 +150,7 @@ def evaluate(root: Path, candidate: Path, identity: str, phase: str, route: str)
         candidate_relative=str(candidate_path.relative_to(root))
     except ValueError as error:
         raise ValueError('candidate must belong to this task workspace') from error
+    source_sha256=sha256(candidate_path.read_bytes()).hexdigest()
     authority=json.loads((root/'campaign/authority.json').read_text())
     runtime=json.loads((root/'campaign/runtime.json').read_text())
     from open_cake_ir.compiler import frontend
@@ -185,6 +186,8 @@ def evaluate(root: Path, candidate: Path, identity: str, phase: str, route: str)
     if built.artifact_payloads: retain(output/'build-artifacts',built.artifact_payloads)
     if built.launchable is None:
         result={'status':'rejected','route':route,'phase':phase,'feedback':dict(built.feedback),
+                'source_sha256':source_sha256,
+                'candidate_sha256':built.submission_sha256,
                 'candidate_path':candidate_relative,'completed_at_epoch':time.time()}
         write_new(output/'outcome.json',result)
         return result
@@ -208,12 +211,15 @@ def evaluate(root: Path, candidate: Path, identity: str, phase: str, route: str)
     receipt=logical.final_receipt
     if receipt is None:
         result={'status':'no_receipt','route':route,'phase':phase,'attempts':len(attempts),
+                'source_sha256':source_sha256,
+                'candidate_sha256':built.submission_sha256,
                 'candidate_path':candidate_relative,'completed_at_epoch':time.time()}
     else:
         retain(output/'receipt-artifacts',receipt.artifact_payloads)
         result={'status':'accepted' if receipt.correctness_passed else 'incorrect','route':route,
             'phase':phase,'correctness_passed':receipt.correctness_passed,
             'timing':None if receipt.timing is None else dict(receipt.timing),
+            'source_sha256':source_sha256,
             'candidate_sha256':receipt.candidate_sha256,'candidate_path':candidate_relative,
             'completed_at_epoch':time.time()}
         write_new(output/'receipt.json',{f.name:getattr(receipt,f.name) for f in fields(receipt)
