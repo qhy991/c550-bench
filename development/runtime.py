@@ -25,6 +25,18 @@ def evaluation_purpose(phase: str) -> str:
 
 def parse_cake_submission(text, filename, parser, frontend_error):
     """Keep known candidate-construction errors inside author feedback."""
+    if Path(filename).suffix == '.json':
+        try:
+            document=json.loads(text)
+            if not isinstance(document,dict):
+                raise ValueError('Cake JSON candidate must be a Schedule or Program object')
+            json.dumps(document,allow_nan=False)
+        except (ValueError,TypeError) as error:
+            feedback={'stage':'submission','error':str(error),'code':'CAKE_JSON_INVALID'}
+            if isinstance(error,json.JSONDecodeError):
+                feedback['source_location']={'filename':filename,'line':error.lineno,'column':error.colno}
+            return None,feedback
+        return document,None
     try:
         skeleton=parser(text,filename=filename)
     except frontend_error as error:
@@ -167,7 +179,8 @@ def evaluate(root: Path, candidate: Path, identity: str, phase: str, route: str)
         raise ValueError('candidate must belong to this task workspace') from error
     candidate_bytes=candidate_path.read_bytes()
     source_sha256=sha256(candidate_bytes).hexdigest()
-    (output/('authored-source.py' if route=='cake' else 'authored-source.json')).write_bytes(candidate_bytes)
+    suffix='py' if route=='cake' and candidate_path.suffix!='.json' else 'json'
+    (output/('authored-source.'+suffix)).write_bytes(candidate_bytes)
     authority=json.loads((root/'campaign/authority.json').read_text())
     runtime=json.loads((root/'campaign/runtime.json').read_text())
     from open_cake_ir.compiler import frontend
@@ -189,7 +202,7 @@ def evaluate(root: Path, candidate: Path, identity: str, phase: str, route: str)
             workload=workload,case_id='primary',executor=executor)
         if feedback is not None:
             submission=CandidateSubmission.seal(environment.media_type,
-                canonical_json_bytes({'python_source':text}))
+                candidate_bytes if candidate_path.suffix=='.json' else canonical_json_bytes({'python_source':text}))
             write_new(output/'build.json',{'route':route,'disposition':'rejected','feedback':feedback})
             result={'status':'rejected','route':route,'phase':phase,'feedback':feedback,
                 'source_sha256':source_sha256,'candidate_sha256':submission.sha256,

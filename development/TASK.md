@@ -53,6 +53,15 @@ rounding boundary, output ownership and original case. Evaluate only through the
 owner. The evaluator applies the external oracle before timing and retains an independent
 profile. Do not call a GPU, compiler or baseline directly from authored code.
 
+The Cake route also accepts complete Schedule or Program JSON in a `.json` file. To
+evaluate a Compiler transformation, first run `compiler_tools.py verify --id ACTION_ID`,
+then submit its retained `campaign/compiler-actions/ACTION_ID/program.json` or complete
+`stage-NNN.json` with `--route cake`. Use the same search and attribution commands above
+with that JSON path. Keep the action records and output path. Do not submit a tool's
+`result.json` summary as a candidate. JSON uses the same Workload, target, ABI, semantic
+and lowering checks; a multi-stage Program can still be refused by the selected target's
+execution or measurement coverage. Never label such a refusal as a Python syntax error.
+
 ## Separate lower-level route when Cake cannot express the hypothesis
 
 If a concrete optimization cannot be represented by Cake IR or cannot be realized by the

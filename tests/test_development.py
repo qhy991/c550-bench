@@ -464,6 +464,27 @@ class DevelopmentReportTests(unittest.TestCase):
 
 
 class CandidateConstructionFeedbackTests(unittest.TestCase):
+    def test_json_tool_candidate_does_not_enter_the_python_frontend(self):
+        def python_only(*args,**kwargs):
+            raise AssertionError('a retained Compiler JSON result was parsed as Python')
+        for document in ({'schema_version':2,'schedule_id':'own-stage','metadata':{'flag':True}},
+                         {'schema_version':1,'program_id':'own-program','stages':[]}):
+            payload,feedback=parse_cake_submission(json.dumps(document),
+                'campaign/compiler-actions/own-action/stage-000.json',python_only,ValueError)
+            self.assertEqual(payload,document)
+            self.assertIsNone(feedback)
+
+    def test_invalid_json_is_localized_feedback_and_never_a_python_submission(self):
+        def python_only(*args,**kwargs):
+            raise AssertionError('JSON must not enter the Python frontend')
+        for text in ('{"schedule_id":\n}', '[]', '{"number":NaN}', '{"number":1e400}'):
+            payload,feedback=parse_cake_submission(text,'own.json',python_only,ValueError)
+            self.assertIsNone(payload)
+            self.assertEqual(feedback['stage'],'submission')
+            self.assertEqual(feedback['code'],'CAKE_JSON_INVALID')
+        _,feedback=parse_cake_submission('{"schedule_id":\n}','own.json',python_only,ValueError)
+        self.assertEqual(feedback['source_location']['line'],2)
+
     def test_frontend_refusal_returns_localized_feedback_but_unknown_fault_raises(self):
         @dataclass
         class Location:
