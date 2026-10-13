@@ -115,9 +115,10 @@ class DevelopmentPreparation(unittest.TestCase):
                 load_local_baseline(root,foreign)
 
     def test_hmz_uses_the_flow_owned_budget_interface(self):
-        command=hmz_command(Path('/opt/hmz'),'author task')
-        self.assertEqual(command,['/opt/hmz','exec','-f','development/ralph_flow.py',
-                                  '-a','claude/glm-5.3:high','author task'])
+        command=hmz_command(Path('/opt/hmz'),'author task',9720)
+        self.assertEqual(command,['/opt/hmz','exec','-f','./development/ralph_flow.py',
+            '-a','agent=claude/glm-5.3:high','-p',
+            'budget.duration=9720,budget.graceful=false','author task'])
         self.assertNotIn('-c',command)
 
 
