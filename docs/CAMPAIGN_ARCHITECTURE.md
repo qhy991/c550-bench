@@ -107,4 +107,3 @@ Compiler target and route, immutable toolchain image, event timer and measured i
 device-state reset, warmup/sample policy, profiler coverage, process deadline enforcement
 and canonical release terminal. HCU, ROCm, CUDA, CUPTI and DCU wall-timing assumptions
 are not defaults for this campaign.
-

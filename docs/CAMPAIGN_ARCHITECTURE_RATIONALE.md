@@ -63,8 +63,21 @@ reservation and provider start. It also rejects a `c550bench.campaign` hierarchy
 
 ## Implementation reconciliation
 
-No deviations are accepted yet. A future live adapter is a separate reviewed change and
-must update the usage and outcome contracts here before it becomes callable.
+The implementation keeps only `prepare` and `report` in the public CLI. `CampaignOwner`
+implements and tests the queue policy internally, but no `serve` command exposes it until
+the MetaX gateway and assay are qualified. This narrows the initial public surface while
+preserving the designed lifecycle contract; Issue #3 and PR #4 accept that boundary.
+
+Preparation records the existing materialized task-data root and requires its Suite v2
+source receipt instead of copying raw licensed material into Git. A future live adapter
+must mount that exact root read-only and recheck the binding. This keeps raw data outside
+source while making its custody an explicit live qualification requirement.
+
+The selected shared `hmz_compiler_tools.py` is checked against its producing commit,
+copied into each fresh workspace and used to freeze the Compiler catalog before intake.
+The complete 25-test suite passed at `34e944e` in the existing C550 no-network, no-GPU,
+no-key CPU container. A future live adapter remains a separate reviewed change and must
+update the usage and outcome contracts here before it becomes callable.
 
 ## Open questions and risks
 
