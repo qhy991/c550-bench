@@ -338,6 +338,38 @@ class DevelopmentReportTests(unittest.TestCase):
         self.assertTrue(result['complete_denominator'])
         self.assertFalse(result['performance_claim'])
 
+    def test_confirmation_needs_matching_profile_full_chain_and_deadline(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);state=root/'state';workspace=root/'task';campaign=workspace/'campaign'
+            (state/'terminals').mkdir(parents=True);campaign.mkdir(parents=True)
+            identity={'candidate_path':'campaign/candidates/c.py','route':'cake',
+                      'source_sha256':'authored-identity','candidate_sha256':'sealed-identity'}
+            timing={'measurement_quality_passed':True,'pooled_sample_counts':{'baseline':10,'candidate':10}}
+            rows={phase:{**identity,'phase':phase,'status':'accepted','correctness_passed':True,
+                         'timing':timing,'completed_at_epoch':90} for phase in ('search','attribution','confirmation')}
+            for phase,value in rows.items():
+                path=campaign/'evaluations'/phase;path.mkdir(parents=True)
+                (path/'outcome.json').write_text(json.dumps(value))
+            profile=campaign/'evaluations/attribution/receipt-artifacts/profile'
+            profile.parent.mkdir();profile.write_text(json.dumps({'candidate_sha256':'sealed-identity',
+                'separate_instrumented_launch':True}))
+            done={'status':'completed','device_release_verified':True,'confirmation':rows['confirmation']}
+            (campaign/'DONE.json').write_text(json.dumps(done))
+            (campaign/'deadline.json').write_text(json.dumps({'stop_at_epoch':100}))
+            (state/'terminals/task.json').write_text(json.dumps({'done':done,'exit_code':0,'release_verified':True}))
+            allocation=root/'allocation.json';allocation.write_text(json.dumps({
+                'kind':'c550_hmz_development_allocation','host':'fixture','compiler':'fixed',
+                'adapter_commit':'fixed','runs':[{'task':'task','root':str(workspace)}]}))
+            def qualified():return development_report(allocation,state)['rows'][0]['confirmation']['qualified']
+            self.assertTrue(qualified())
+            profile.write_text('{}');self.assertFalse(qualified())
+            profile.write_text(json.dumps({'candidate_sha256':'sealed-identity','separate_instrumented_launch':True}))
+            (campaign/'deadline.json').write_text(json.dumps({'stop_at_epoch':80}));self.assertFalse(qualified())
+            (campaign/'deadline.json').write_text(json.dumps({'stop_at_epoch':100}))
+            rows['search']['candidate_sha256']='other-candidate'
+            (campaign/'evaluations/search/outcome.json').write_text(json.dumps(rows['search']))
+            self.assertFalse(qualified())
+
 
 class CandidateConstructionFeedbackTests(unittest.TestCase):
     def test_frontend_refusal_returns_localized_feedback_but_unknown_fault_raises(self):

@@ -165,7 +165,9 @@ def evaluate(root: Path, candidate: Path, identity: str, phase: str, route: str)
         candidate_relative=str(candidate_path.relative_to(root))
     except ValueError as error:
         raise ValueError('candidate must belong to this task workspace') from error
-    source_sha256=sha256(candidate_path.read_bytes()).hexdigest()
+    candidate_bytes=candidate_path.read_bytes()
+    source_sha256=sha256(candidate_bytes).hexdigest()
+    (output/('authored-source.py' if route=='cake' else 'authored-source.json')).write_bytes(candidate_bytes)
     authority=json.loads((root/'campaign/authority.json').read_text())
     runtime=json.loads((root/'campaign/runtime.json').read_text())
     from open_cake_ir.compiler import frontend
@@ -181,7 +183,7 @@ def evaluate(root: Path, candidate: Path, identity: str, phase: str, route: str)
     builder=_triton_builder(executor,workload)
     if route=='cake':
         from open_cake_ir.lab.python_reference import parse_skeleton
-        text=candidate_path.read_text()
+        text=candidate_bytes.decode('utf-8')
         payload,feedback=parse_cake_submission(text,str(candidate_path),parse_skeleton,frontend.FrontendError)
         environment=TaskOpenCakeEnvironment(compiler,builder,authority_document=authority['authoring'],
             workload=workload,case_id='primary',executor=executor)
@@ -201,7 +203,7 @@ def evaluate(root: Path, candidate: Path, identity: str, phase: str, route: str)
         environment=NativeTritonEnvironment(builder,toolchain_requirements=lowered.toolchain_requirements,
             authority_document={'environment_kind':'native_triton','route_split_from':'cake'},
             workload=workload,case_id='primary')
-        submission=CandidateSubmission.seal(environment.media_type,candidate_path.read_bytes())
+        submission=CandidateSubmission.seal(environment.media_type,candidate_bytes)
     built=environment.build(submission)
     write_new(output/'build.json',{'route':route,'disposition':built.disposition,
                                    'feedback':dict(built.feedback)})

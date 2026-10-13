@@ -27,11 +27,12 @@ def report(allocation_path,state):
         owner,owner_ref=observation(state/'owners'/f'{task}.json')
         done,done_ref=observation(root/'campaign/DONE.json')
         deadline,deadline_ref=observation(root/'campaign/deadline.json')
-        evaluations=[]
+        evaluations=[];raw_evaluations=[]
         for path in sorted((root/'campaign/evaluations').glob('*/outcome.json')):
             value,ref=observation(path)
             if value is None:
                 evaluations.append({'id':path.parent.name,'status':'unknown_unreadable','evidence':ref});continue
+            raw_evaluations.append((path,value))
             evaluations.append({'id':path.parent.name,'phase':value.get('phase'),
                 'route':value.get('route'),'candidate_path':value.get('candidate_path'),
                 'status':value.get('status'),'correctness_passed':value.get('correctness_passed'),
@@ -46,14 +47,34 @@ def report(allocation_path,state):
         timing=confirmation.get('timing') or {}
         if not isinstance(timing,dict):timing={}
         counts=timing.get('pooled_sample_counts') or {}
-        qualified=(confirmation.get('status')=='accepted'
+        budget_met=None
+        if deadline is not None and isinstance(confirmation.get('completed_at_epoch'),(float,int)):
+            budget_met=confirmation['completed_at_epoch']<=deadline['stop_at_epoch']
+        key=lambda row:tuple(row.get(k) for k in
+            ('candidate_path','route','source_sha256','candidate_sha256'))
+        identity=key(confirmation)
+        matching=[(path,value) for path,value in raw_evaluations
+            if all(isinstance(x,str) and x for x in identity) and key(value)==identity]
+        searches=[value for _,value in matching if value.get('phase')=='search'
+            and value.get('status')=='accepted' and value.get('correctness_passed') is True
+            and (value.get('timing') or {}).get('measurement_quality_passed') is True]
+        profiles=[]
+        for path,value in matching:
+            if value.get('phase')=='attribution' and value.get('status')=='accepted':
+                profile,_=observation(path.parent/'receipt-artifacts/profile')
+                if (profile and profile.get('candidate_sha256')==confirmation.get('candidate_sha256')
+                        and profile.get('separate_instrumented_launch') is True):profiles.append(path)
+        final=any(value==confirmation and value.get('phase')=='confirmation' for _,value in matching)
+        qualified=bool(final and searches and profiles and budget_met is True
+            and (done or {}).get('status')=='completed'
+            and (terminal or {}).get('done')==done
+            and (terminal or {}).get('release_verified') is True
+            and (terminal or {}).get('exit_code')==0
+            and confirmation.get('status')=='accepted'
             and confirmation.get('correctness_passed') is True
             and timing.get('measurement_quality_passed') is True
             and counts=={'baseline':10,'candidate':10}
             and (done or {}).get('device_release_verified') is True)
-        budget_met=None
-        if deadline is not None and isinstance(confirmation.get('completed_at_epoch'),(float,int)):
-            budget_met=confirmation['completed_at_epoch']<=deadline['stop_at_epoch']
         faults=[]
         for path in sorted((root/'campaign/evaluation-requests').glob('*/response.json')):
             value,ref=observation(path)
@@ -69,6 +90,7 @@ def report(allocation_path,state):
                 'route':confirmation.get('route'),'candidate_path':confirmation.get('candidate_path'),
                 'correctness_passed':confirmation.get('correctness_passed'),
                 'timing':timing or None,'qualified':qualified,'budget_met':budget_met},
+            'matching_profile_evidence':[str(path.parent/'receipt-artifacts/profile') for path in profiles],
             'release_verified':(done or {}).get('device_release_verified'),
             'promotion_disposition':'unreviewed',
             'evidence':{'claim':claim_ref,'terminal':terminal_ref,'owner':owner_ref,
