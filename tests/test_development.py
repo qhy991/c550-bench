@@ -265,6 +265,12 @@ class EvaluationSubmissionTests(unittest.TestCase):
             path.return_value.__truediv__.return_value.read_bytes.return_value=b'python\0author.py\0'
             with self.assertRaises(PermissionError):require_owner(Path('/tmp/task'))
 
+    def test_owner_entry_refuses_launcher_tokens_in_arbitrary_parent_arguments(self):
+        with patch('development.owner_evaluation.Path') as path:
+            path.return_value.__truediv__.return_value.read_bytes.return_value=(
+                sys.executable.encode()+b'\0-c\0arbitrary_parent_code\0-m\0development.launch\0')
+            with self.assertRaises(PermissionError):require_owner(Path('/tmp/task'))
+
     def test_evaluation_timeout_terminates_its_process_group(self):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory);folder,request=self.inputs(root)
