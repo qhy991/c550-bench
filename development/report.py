@@ -85,7 +85,7 @@ def report(allocation_path,state):
                                'evidence':ref})
         consumed=(True if claim.get('task')==task and claim.get('author_opportunity_consumed') is True
                   else None) if claim is not None else None if claim_ref.get('read_error')!='missing' else False
-        if any(ref.get('read_error') not in (None,'missing')
+        if consumed is not True and any(ref.get('read_error') not in (None,'missing')
                for ref in (terminal_ref,owner_ref,done_ref,deadline_ref)):
             consumed=None
         if terminal is not None:
