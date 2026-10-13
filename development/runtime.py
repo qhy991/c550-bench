@@ -78,6 +78,16 @@ def prepare(root: Path) -> dict:
     authoring['compiler_revision']=compiler_ref
     bundle=_prepare_baseline(source,preparation,compiler,executor,host,
                              workload,authoring,starter.read_text(),compiler_ref,'triton')
+    schedule=frontend.read_schedule(starter).document
+    requirements=compiler.lower(compiler.assess(schedule)).toolchain_requirements
+    write_new(root/'campaign/native-interface.json',{
+        'schema_version':1,'route':'native_triton','target':workload.target,
+        'kernel_entry_point':requirements['kernel_entry_point'],
+        'compile_constants':dict(requirements['compile_constants']),
+        'compile_options':dict(requirements['compile_options']),
+        'grid':list(requirements['grid']),
+        'source_contract':'one kernel definition with fixed Triton imports',
+    })
     baseline=load_local_baseline(root,bundle)
     from open_cake_ir.evaluation.paired import candidate_identity
     prepared={'schema_version':1,'fixed_baseline_bundle_path':str(bundle),

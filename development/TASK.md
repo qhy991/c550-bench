@@ -69,7 +69,9 @@ separate C550 qualification. `No promotion` is valid.
 
 After writing the required `plan.json` and native candidate JSON, use the same evaluator
 with `--route native_triton`. The candidate must remain below the plan directory. Use
-fresh search and attribution ids and retain both Cake and native observations.
+fresh search and attribution ids and retain both Cake and native observations. Read
+`campaign/native-interface.json` for the exact kernel entry, constants, options and grid;
+do not infer or widen them.
 
 ## Budget and evidence
 
