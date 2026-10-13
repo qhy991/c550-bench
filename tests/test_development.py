@@ -11,12 +11,13 @@ from unittest.mock import patch
 from development.binding import SKILLS, TARGET, validate
 from development.prepare import prepare
 from development.runtime import evaluation_purpose, load_local_baseline, native_plan, parse_cake_submission
-from development.queue import DevelopmentQueue, reconcile
+from development.queue import DevelopmentQueue, process_alive, reconcile
 from development.launch import hmz_command, main as launch_main, release_verified, select_nominee
 from development.submission import abandon_pending, execute, service, validate as validate_request
 from development.owner_evaluation import require_owner
 from development.controller_entry import SOURCE, controller_command
 from development.report import combine, report as development_report
+from development.successor import unclaimed
 
 ROOT=Path(__file__).resolve().parents[1]
 TASKS=json.loads((ROOT/'development/tasks.json').read_text())['tasks']
@@ -98,6 +99,36 @@ class DevelopmentPreparation(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,'skill'):
                 prepare(path,'c550-1',root/'allocation.json',repository=ROOT)
             self.assertFalse(Path(plan['assignments'][0]['root']).exists())
+
+    def test_successor_excludes_claimed_opportunities_even_before_intake(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root,path,plan=self.inputs(directory);state=root/'previous-state';(state/'claims').mkdir(parents=True)
+            rows=[r for r in plan['assignments'] if r['host']=='c550-2'];runs=[]
+            for row in rows:
+                old=root/'previous-runs'/row['task'];old.mkdir(parents=True)
+                runs.append({'task':row['task'],'root':str(old),'source_provenance':row['source']})
+            previous=root/'previous.json';previous.write_text(json.dumps({
+                'kind':'c550_hmz_development_allocation','host':'c550-2',
+                'compiler':plan['compiler_commit'],'runs':runs}))
+            (state/'LAUNCH.json').write_text(json.dumps({'allocation':str(previous),
+                'owner_pid':99999999,'owner_start_ticks':'0'}))
+            consumed=rows[0]['task']
+            (state/'claims'/f'{consumed}.json').write_text(json.dumps({
+                'task':consumed,'author_opportunity_consumed':True}))
+            selected,excluded=unclaimed(path,'c550-2',previous,state,ROOT)
+            self.assertEqual(excluded,frozenset({consumed}))
+            self.assertNotIn(consumed,selected)
+            allocation=prepare(path,'c550-2',root/'successor.json',repository=ROOT,tasks=selected)
+            self.assertEqual({r['task'] for r in allocation['runs']},set(selected))
+            self.assertFalse(Path(plan['assignments'][1]['root']).exists())
+
+    def test_missing_claim_custody_refuses_successor_selection(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root,path,plan=self.inputs(directory);state=root/'state';state.mkdir()
+            previous=root/'previous.json';previous.write_text('{}')
+            (state/'LAUNCH.json').write_text('{}')
+            with self.assertRaisesRegex(ValueError,'custody'):
+                unclaimed(path,'c550-1',previous,state,ROOT)
 
     def test_native_route_requires_a_retained_own_cake_candidate_and_exact_split(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -183,6 +214,10 @@ class _QueueLauncher:
 
 
 class DevelopmentQueueTests(unittest.TestCase):
+    def test_permission_denial_does_not_prove_owner_exit(self):
+        with patch('development.queue.process_start_ticks',return_value=None), \
+             patch('development.queue.os.kill',side_effect=PermissionError('not observable')):
+            self.assertTrue(process_alive({'pid':123,'start_ticks':'0'}))
     def test_two_authors_share_one_device_without_duplicate_claims(self):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory);runs=[]

@@ -43,12 +43,17 @@ def source_identity(root: Path) -> dict[str, str]:
     return identity
 
 
-def prepare(plan_path: Path, host: str, output: Path, *, repository: Path | None = None) -> dict:
+def prepare(plan_path: Path, host: str, output: Path, *, repository: Path | None = None,
+            tasks: frozenset[str] | None = None) -> dict:
     repository = Path(repository or Path(__file__).resolve().parents[1]).resolve(strict=True)
     plan = read(plan_path)
     rows = validate(plan, repository)
     config = plan["hosts"].get(host)
     selected = [row for row in rows if row["host"] == host]
+    if tasks is not None:
+        if not tasks or not tasks.issubset({row['task'] for row in selected}):
+            raise ValueError('selected tasks differ from the frozen host assignments')
+        selected = [row for row in selected if row['task'] in tasks]
     if config is None or not selected:
         raise ValueError("requested host has no frozen assignments")
     adapter_root = clean_checkout(Path(config["adapter_root"]), plan["adapter_commit"])

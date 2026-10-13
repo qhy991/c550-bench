@@ -19,7 +19,8 @@ def process_alive(identity):
     current=process_start_ticks(pid)
     if isinstance(ticks,str) and current is not None:return current==ticks
     try:os.kill(pid,0);return True
-    except (ProcessLookupError,PermissionError,OSError):return False
+    except ProcessLookupError:return False
+    except PermissionError:return True
 
 
 class ContainerLauncher:
