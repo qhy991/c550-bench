@@ -84,7 +84,8 @@ def validate(plan: dict, repository: Path) -> tuple[dict, ...]:
         devices = config.get("devices")
         if (not isinstance(devices, list) or len(devices) != 8
                 or {d.get("physical_device") for d in devices} != set(range(8))
-                or any(d.get("runtime_device") != 0 or not isinstance(d.get("expected_pci"), str)
+                or any(d.get("runtime_device") != d.get("physical_device")
+                       or not isinstance(d.get("expected_pci"), str)
                        or not d["expected_pci"] for d in devices)):
             raise ValueError(f"{host} requires eight exact physical/runtime/PCI routes")
     rows = plan.get("assignments")

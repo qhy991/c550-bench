@@ -36,7 +36,7 @@ class DevelopmentPreparation(unittest.TestCase):
             'skills/evolve/SKILL.md':'# evolve\n','skills/metax-c550-hardware-exploration/SKILL.md':'# metax\n'})
         source=root/'source';source.mkdir();
         for name,text in {'workload.json':'{}','starter.py':'# starter\n','run.json':'{}','baseline.json':'{}'}.items():(source/name).write_text(text)
-        devices=[{'physical_device':i,'runtime_device':0,'expected_pci':f'0000:{i:02x}:00'} for i in range(8)]
+        devices=[{'physical_device':i,'runtime_device':i,'expected_pci':f'0000:{i:02x}:00'} for i in range(8)]
         hosts={h:{'compiler_root':str(compiler),'adapter_root':str(adapter),'home':str(root/(h+'-home')),
                   'owner_root':str(root/(h+'-runs')),'devices':devices} for h in ('c550-1','c550-2')}
         assignments=[]

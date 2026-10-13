@@ -58,7 +58,7 @@ def main():
         values={name:getattr(a,key+'_'+name) for name in ('compiler_root','adapter_root','home','owner_root')}
         if any(not Path(value).is_absolute() for value in values.values()):
             raise ValueError('host paths must be absolute')
-        hosts[host]={**values,'devices':[{'physical_device':i,'runtime_device':0,'expected_pci':pci}
+        hosts[host]={**values,'devices':[{'physical_device':i,'runtime_device':i,'expected_pci':pci}
                                         for i,pci in enumerate(PCIS)]}
     for row in rows:
         host=row['execution_host']; physical=row['slot']['physical_device']
