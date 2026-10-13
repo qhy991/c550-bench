@@ -1,7 +1,7 @@
 """CPU preparation and bounded candidate Evaluation for one prepared C550 HMZ task."""
 from __future__ import annotations
 
-from dataclasses import fields
+from dataclasses import asdict, fields
 from hashlib import sha256
 import argparse
 import json
@@ -21,6 +21,17 @@ def write_new(path: Path, value: object) -> None:
 
 def evaluation_purpose(phase: str) -> str:
     return 'confirmatory' if phase == 'confirmation' else phase
+
+
+def parse_cake_submission(text, filename, parser, frontend_error):
+    """Keep known candidate-construction errors inside author feedback."""
+    try:
+        skeleton=parser(text,filename=filename)
+    except frontend_error as error:
+        return None,{'stage':'assessment','error':str(error),'code':error.code,
+                     'source_location':asdict(error.location)}
+    return ({'python_program_source':text,'program_id':skeleton['program_id']}
+            if 'program_id' in skeleton else {'python_source':text}),None
 
 
 def retain(root: Path, payloads) -> None:
@@ -170,11 +181,18 @@ def evaluate(root: Path, candidate: Path, identity: str, phase: str, route: str)
     builder=_triton_builder(executor,workload)
     if route=='cake':
         from open_cake_ir.lab.python_reference import parse_skeleton
-        text=candidate_path.read_text();skeleton=parse_skeleton(text,filename=str(candidate_path))
-        payload=({'python_program_source':text,'program_id':skeleton['program_id']}
-                 if 'program_id' in skeleton else {'python_source':text})
+        text=candidate_path.read_text()
+        payload,feedback=parse_cake_submission(text,str(candidate_path),parse_skeleton,frontend.FrontendError)
         environment=TaskOpenCakeEnvironment(compiler,builder,authority_document=authority['authoring'],
             workload=workload,case_id='primary',executor=executor)
+        if feedback is not None:
+            submission=CandidateSubmission.seal(environment.media_type,
+                canonical_json_bytes({'python_source':text}))
+            write_new(output/'build.json',{'route':route,'disposition':'rejected','feedback':feedback})
+            result={'status':'rejected','route':route,'phase':phase,'feedback':feedback,
+                'source_sha256':source_sha256,'candidate_sha256':submission.sha256,
+                'candidate_path':candidate_relative,'completed_at_epoch':time.time()}
+            write_new(output/'outcome.json',result);return result
         submission=CandidateSubmission.seal(environment.media_type,canonical_json_bytes(payload))
     else:
         native_plan(root,candidate_path,binding)

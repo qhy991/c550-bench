@@ -5,11 +5,12 @@ import sys
 import tempfile
 import unittest
 import time
+from dataclasses import dataclass
 from unittest.mock import patch
 
 from development.binding import SKILLS, TARGET, validate
 from development.prepare import prepare
-from development.runtime import evaluation_purpose, load_local_baseline, native_plan
+from development.runtime import evaluation_purpose, load_local_baseline, native_plan, parse_cake_submission
 from development.queue import DevelopmentQueue, reconcile
 from development.launch import hmz_command, main as launch_main, release_verified, select_nominee
 from development.submission import abandon_pending, execute, service, validate as validate_request
@@ -336,5 +337,30 @@ class DevelopmentReportTests(unittest.TestCase):
                         {'compiler':'fixed','launcher':'fixed','rows':rows[27:]}])
         self.assertTrue(result['complete_denominator'])
         self.assertFalse(result['performance_claim'])
+
+
+class CandidateConstructionFeedbackTests(unittest.TestCase):
+    def test_frontend_refusal_returns_localized_feedback_but_unknown_fault_raises(self):
+        @dataclass
+        class Location:
+            filename:str='candidate.py'
+            line:int=6
+            column:int=40
+        class FrontendRefusal(ValueError):
+            code='FRONTEND_UNSUPPORTED';location=Location()
+        def refused(*args,**kwargs):raise FrontendRefusal('expected a literal or a previously declared name')
+        payload,feedback=parse_cake_submission('source','candidate.py',refused,FrontendRefusal)
+        self.assertIsNone(payload)
+        self.assertEqual(feedback['stage'],'assessment')
+        self.assertEqual(feedback['source_location']['line'],6)
+        def unknown(*args,**kwargs):raise RuntimeError('infrastructure failure')
+        with self.assertRaisesRegex(RuntimeError,'infrastructure'):
+            parse_cake_submission('source','candidate.py',unknown,FrontendRefusal)
+
+    def test_valid_program_retains_the_program_submission_route(self):
+        payload,feedback=parse_cake_submission('source','candidate.py',
+            lambda *args,**kwargs:{'program_id':'own-program'},ValueError)
+        self.assertEqual(payload,{'python_program_source':'source','program_id':'own-program'})
+        self.assertIsNone(feedback)
 
 if __name__=='__main__':unittest.main()
