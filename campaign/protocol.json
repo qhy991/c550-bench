@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "kind": "c550_bench_whole_task_campaign",
+  "status": "live_qualification_required",
+  "candidate_unit": "one complete task callable covering all original workloads",
+  "correctness": {
+    "workloads": 16,
+    "rounds_per_workload": 10,
+    "owner": "c550bench.check_problem"
+  },
+  "timing": {
+    "status": "unqualified",
+    "timer": null,
+    "measured_interval": null,
+    "device_state_reset": null,
+    "sample_policy": null
+  },
+  "profiling": {
+    "status": "unqualified"
+  },
+  "release": {
+    "status": "unqualified",
+    "canonical_terminal": null
+  },
+  "live_execution": false
+}

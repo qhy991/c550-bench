@@ -56,6 +56,34 @@ uv pip install --python .venv/bin/python -r requirements-cpu-test.txt
 `python3 c550bench.py list` 只依赖标准库。CPU 自检、audit 和编译不会升格为
 C550 设备资格，实际结果记录在 [验证记录](docs/VALIDATION.md)。
 
+## 整题 Campaign 准备
+
+仓库提供一个 CPU-only 的冻结 Campaign 准备入口，用于后续“一题一个作者 Run”的
+12 题比较。每个分配绑定该题全部 16 个原始 workload、一个 Compiler 条件和一个包含
+最终确认的总墙钟预算。输入计划由 open-cake-ir 的 `tools/evolve.py freeze-bench`
+生成；结果目录位于源码仓库之外。
+
+```bash
+python3 -m campaign prepare \
+  --plan /intent/plan.json \
+  --routing /intent/routing.json \
+  --host c550-a \
+  --output /intent/c550-a/allocation.json
+
+python3 -m campaign report --allocation /intent/c550-a/allocation.json
+```
+
+准备过程创建 fresh workspace、固定 Compiler checkout 和 Compiler 工具目录，不调用
+模型或 GPU。启动声明、确认声明和结果采用只增记录；作者机会一旦声明便不能重启。
+释放证据不明确时，后继作者不能进入同一物理卡。报告始终包含所有冻结分配和每题全部
+16 个 workload，包括未启动、缺失、未检查和 unknown。
+
+当前 [Campaign protocol](campaign/protocol.json) 明确标记 live 路线尚未资格化。
+在 C550 的事件计时区间、设备状态重置、profile、进程 deadline 和 canonical release
+terminal 经过独立验收前，没有公开的 live `serve` 命令。12 题固定强 baseline 也必须
+先作为 plan 的 tracked files 完成资格；不能用初始 Cake 实现静默替换。
+设计和状态机见 [Campaign architecture](docs/CAMPAIGN_ARCHITECTURE.md)。
+
 ## C550 设备验证
 
 先核对被授权的 C550 容器、GPU 占用和源码/数据锁；再把此目录（含忽略的
