@@ -3,7 +3,7 @@ import argparse
 import json
 from pathlib import Path
 
-from development.binding import read, validate
+from development.binding import git, read, validate
 from development.prepare import prepare
 from development.queue import process_alive
 
@@ -27,6 +27,8 @@ def unclaimed(plan_path, host, previous_allocation, previous_state, repository):
     for task,run in previous.items():
         if not Path(run['root']).is_dir():
             raise ValueError('predecessor workspace is unavailable')
+        if run['device']!=current[task]['device']:
+            raise ValueError('predecessor device route differs')
         if run['source_provenance']!=current[task]['source']:
             raise ValueError('retained task material differs')
     claimed=set()
@@ -36,10 +38,31 @@ def unclaimed(plan_path, host, previous_allocation, previous_state, repository):
                 or value.get('author_opportunity_consumed') is not True):
             raise ValueError('unreadable or foreign historical claim')
         claimed.add(task)
+    for directory in ('commands','owners'):
+        for path in (state/directory).glob('*.json'):
+            if path.stem not in previous:raise ValueError('foreign predecessor execution record')
+            claimed.add(path.stem)
+    for path in (state/'logs').glob('*'):
+        if path.suffix in {'.stdout','.stderr'}:
+            if path.stem not in previous:raise ValueError('foreign predecessor log')
+            claimed.add(path.stem)
+    for path in (state/'terminals').glob('*.json'):
+        value=read(path)
+        if path.stem not in previous:raise ValueError('foreign predecessor terminal')
+        if not (value.get('error') in {'unstarted_owner_exit','unstarted_release_blocked'}
+                and value.get('done') is None and value.get('exit_code') is None):
+            claimed.add(path.stem)
     for task,run in previous.items():
         root=Path(run['root'])/'campaign'
         if (root/'intake.json').exists() or (root/'deadline.json').exists() or (root/'DONE.json').exists():
             claimed.add(task)
+    for task in set(previous)-claimed:
+        run=previous[task];root=Path(run['root'])
+        if git(root,'rev-parse','HEAD')!=run['prepared_commit']:
+            raise ValueError('predecessor unclaimed workspace identity differs')
+        binding=read(root/'campaign/development-binding.json')
+        if binding!={k:v for k,v in run.items() if k!='prepared_commit'}:
+            raise ValueError('predecessor unclaimed binding differs')
     return frozenset(set(previous)-claimed),frozenset(claimed)
 
 

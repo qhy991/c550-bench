@@ -105,8 +105,11 @@ class DevelopmentPreparation(unittest.TestCase):
             root,path,plan=self.inputs(directory);state=root/'previous-state';(state/'claims').mkdir(parents=True)
             rows=[r for r in plan['assignments'] if r['host']=='c550-2'];runs=[]
             for row in rows:
-                old=root/'previous-runs'/row['task'];old.mkdir(parents=True)
-                runs.append({'task':row['task'],'root':str(old),'source_provenance':row['source']})
+                old=root/'previous-runs'/row['task'];old.parent.mkdir(exist_ok=True)
+                binding={'task':row['task'],'root':str(old),'source_provenance':row['source'],
+                         'device':row['device']}
+                commit=repository(old,{'campaign/development-binding.json':json.dumps(binding)})
+                runs.append({**binding,'prepared_commit':commit})
             previous=root/'previous.json';previous.write_text(json.dumps({
                 'kind':'c550_hmz_development_allocation','host':'c550-2',
                 'compiler':plan['compiler_commit'],'runs':runs}))
@@ -118,6 +121,21 @@ class DevelopmentPreparation(unittest.TestCase):
             selected,excluded=unclaimed(path,'c550-2',previous,state,ROOT)
             self.assertEqual(excluded,frozenset({consumed}))
             self.assertNotIn(consumed,selected)
+            (state/'claims'/f'{consumed}.json').unlink();(state/'commands').mkdir()
+            (state/'commands'/f'{consumed}.json').write_text('[]')
+            selected,excluded=unclaimed(path,'c550-2',previous,state,ROOT)
+            self.assertNotIn(consumed,selected)
+            second=rows[1]['task'];old_binding=Path(runs[1]['root'])/'campaign/development-binding.json'
+            saved=old_binding.read_text();old_binding.write_text('{}')
+            with self.assertRaisesRegex(ValueError,'binding'):
+                unclaimed(path,'c550-2',previous,state,ROOT)
+            old_binding.write_text(saved)
+            original_route=rows[1]['device']
+            rows[1]['device']=plan['hosts']['c550-2']['devices'][7]
+            path.write_text(json.dumps(plan))
+            with self.assertRaisesRegex(ValueError,'device route'):
+                unclaimed(path,'c550-2',previous,state,ROOT)
+            rows[1]['device']=original_route;path.write_text(json.dumps(plan))
             allocation=prepare(path,'c550-2',root/'successor.json',repository=ROOT,tasks=selected)
             self.assertEqual({r['task'] for r in allocation['runs']},set(selected))
             self.assertFalse(Path(plan['assignments'][1]['root']).exists())
