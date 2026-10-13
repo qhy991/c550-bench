@@ -16,7 +16,7 @@ from development.launch import hmz_command, main as launch_main, release_verifie
 from development.submission import abandon_pending, execute, service, validate as validate_request
 from development.owner_evaluation import require_owner
 from development.controller_entry import SOURCE, controller_command
-from development.report import combine, report as development_report
+from development.report import combine, compose_successor, report as development_report
 from development.successor import unclaimed
 
 ROOT=Path(__file__).resolve().parents[1]
@@ -379,7 +379,8 @@ class DevelopmentReportTests(unittest.TestCase):
             allocation=root/'allocation.json';allocation.write_text(json.dumps({
                 'kind':'c550_hmz_development_allocation','host':'fixture',
                 'compiler':'fixed-compiler','adapter_commit':'fixed-launcher','runs':runs}))
-            (state/'terminals/a.json').write_text(json.dumps({'error':'unstarted_owner_exit','exit_code':None}))
+            (state/'terminals/a.json').write_text(json.dumps({'task':'a','error':'unstarted_owner_exit',
+                'exit_code':None,'done':None,'release_verified':False}))
             result=development_report(allocation,state)
             self.assertEqual(result['assigned'],2)
             self.assertEqual(result['execution_counts'],{'terminal':1,'unstarted':1})
@@ -416,7 +417,7 @@ class DevelopmentReportTests(unittest.TestCase):
             done={'status':'completed','device_release_verified':True,'confirmation':rows['confirmation']}
             (campaign/'DONE.json').write_text(json.dumps(done))
             (campaign/'deadline.json').write_text(json.dumps({'stop_at_epoch':100}))
-            (state/'terminals/task.json').write_text(json.dumps({'done':done,'exit_code':0,'release_verified':True}))
+            (state/'terminals/task.json').write_text(json.dumps({'task':'task','done':done,'exit_code':0,'release_verified':True}))
             allocation=root/'allocation.json';allocation.write_text(json.dumps({
                 'kind':'c550_hmz_development_allocation','host':'fixture','compiler':'fixed',
                 'adapter_commit':'fixed','runs':[{'task':'task','root':str(workspace)}]}))
@@ -429,6 +430,25 @@ class DevelopmentReportTests(unittest.TestCase):
             rows['search']['candidate_sha256']='other-candidate'
             (campaign/'evaluations/search/outcome.json').write_text(json.dumps(rows['search']))
             self.assertFalse(qualified())
+
+    def test_successor_composition_retains_strata_and_refuses_duplicate_attempts(self):
+        predecessor={'host':'fixture','compiler':'fixed','launcher':'old','rows':[
+            {'task':task,'opportunity_consumed':i<26,
+             'execution':'terminal' if i<26 else 'unstarted'} for i,task in enumerate(TASKS)]}
+        successor={'host':'fixture','compiler':'fixed','launcher':'new','rows':[
+            {'task':task,'opportunity_consumed':False,'execution':'unstarted'} for task in TASKS[26:]]}
+        result=compose_successor([predecessor],[successor])
+        self.assertTrue(result['complete_denominator']);self.assertFalse(result['all_attempts_terminal'])
+        self.assertEqual(len(result['predecessor_unstarted_history']),28)
+        self.assertEqual({s['launcher'] for s in result['source_strata']},{'old','new'})
+        successor['rows'].append({'task':TASKS[0],'opportunity_consumed':True,'execution':'terminal'})
+        with self.assertRaisesRegex(ValueError,'overlaps'):compose_successor([predecessor],[successor])
+
+    def test_unknown_opportunity_custody_cannot_complete_the_round(self):
+        report={'host':'fixture','compiler':'fixed','launcher':'old','rows':[
+            {'task':task,'opportunity_consumed':True,'execution':'terminal'} for task in TASKS]}
+        report['rows'][0]['opportunity_consumed']=None
+        with self.assertRaisesRegex(ValueError,'custody'):compose_successor([report],[])
 
 
 class CandidateConstructionFeedbackTests(unittest.TestCase):

@@ -24,6 +24,8 @@ def report(allocation_path,state):
         seen.add(task)
         claim,claim_ref=observation(state/'claims'/f'{task}.json')
         terminal,terminal_ref=observation(state/'terminals'/f'{task}.json')
+        if terminal is not None and terminal.get('task')!=task:
+            raise ValueError('terminal record names a different task')
         owner,owner_ref=observation(state/'owners'/f'{task}.json')
         done,done_ref=observation(root/'campaign/DONE.json')
         deadline,deadline_ref=observation(root/'campaign/deadline.json')
@@ -81,7 +83,17 @@ def report(allocation_path,state):
             if value is None or 'error' in value:
                 faults.append({'id':path.parent.name,'error':(value or {}).get('error','unreadable'),
                                'evidence':ref})
-        rows.append({'task':task,'execution':execution,'terminal_status':(done or {}).get('status'),
+        consumed=(True if claim.get('task')==task and claim.get('author_opportunity_consumed') is True
+                  else None) if claim is not None else None if claim_ref.get('read_error')!='missing' else False
+        if terminal is not None:
+            unstarted=(terminal.get('error') in {'unstarted_owner_exit','unstarted_release_blocked'}
+                and terminal.get('done') is None and terminal.get('exit_code') is None
+                and terminal.get('release_verified') is False)
+            if not unstarted:consumed=True
+        if not consumed and (owner is not None or done is not None or deadline is not None
+                or (state/'commands'/f'{task}.json').exists()):consumed=True
+        rows.append({'task':task,'execution':execution,'opportunity_consumed':consumed,
+            'terminal_status':(done or {}).get('status'),
             'controller_exit_code':(terminal or {}).get('exit_code'),
             'terminal_error':(terminal or {}).get('error'),
             'model_exit':(done or {}).get('model_exit'),
@@ -112,6 +124,43 @@ def combine(reports):
         raise ValueError('host reports use different Compiler or launcher')
     return {'assigned':54,'complete_denominator':True,'hosts':reports,
             'unsupported':registered['unsupported'],'performance_claim':False}
+
+
+def compose_successor(predecessor_reports,successor_reports):
+    """Keep predecessor attempts plus disjoint successor tasks, with version strata."""
+    registered=json.loads((Path(__file__).with_name('tasks.json')).read_text())
+    reports=[*predecessor_reports,*successor_reports]
+    if not reports or len({r['compiler'] for r in reports})!=1:
+        raise ValueError('successor reports must retain one frozen Compiler')
+    selected={};history=[];strata=[]
+    for predecessor,group in ((True,predecessor_reports),(False,successor_reports)):
+        for document in group:
+            stratum={'host':document['host'],'compiler':document['compiler'],
+                     'launcher':document['launcher'],'predecessor':predecessor}
+            strata.append(stratum)
+            for row in document['rows']:
+                if type(row.get('opportunity_consumed')) is not bool:
+                    raise ValueError('author opportunity custody is unknown')
+                value={**row,'source_stratum':stratum}
+                if predecessor and row['opportunity_consumed'] is False:
+                    if row['execution'] not in {'unstarted','terminal'}:
+                        raise ValueError('unclaimed predecessor has unexplained execution')
+                    if row['execution']=='terminal' and row.get('terminal_error') not in {
+                            'unstarted_owner_exit','unstarted_release_blocked'}:
+                        raise ValueError('unclaimed predecessor terminal is not an unstarted outcome')
+                    history.append(value);continue
+                task=row['task']
+                if task in selected:raise ValueError('successor overlaps a historical attempt')
+                selected[task]=value
+    if set(selected)!=set(registered['tasks']):
+        raise ValueError('successor composition misses the54 task denominator')
+    return {'assigned':54,'complete_denominator':True,
+        'all_attempts_terminal':all(r['opportunity_consumed'] is True and r['execution']=='terminal'
+                                    for r in selected.values()),
+        'rows':[selected[t] for t in registered['tasks']],
+        'predecessor_unstarted_history':history,'source_strata':strata,
+        'unsupported':registered['unsupported'],'performance_claim':False,
+        'scope':'executor strata retained; no single-Executor or Compiler effect inferred'}
 
 
 def main():
