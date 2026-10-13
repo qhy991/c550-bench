@@ -27,6 +27,30 @@ def retain(root: Path, payloads) -> None:
         (root / role).write_bytes(payload)
 
 
+def load_local_baseline(root: Path, bundle: Path):
+    """Read the task's own generated baseline without weakening external custody."""
+    base=(root/'campaign/baseline-preparation').resolve(strict=True)
+    path=Path(bundle).resolve(strict=True)
+    if base not in path.parents or path.is_symlink() or not path.is_file():
+        raise ValueError('local baseline bundle escapes its preparation directory')
+    from open_cake_ir.evaluation.paired import candidate_from_identity
+    document=json.loads(path.read_text())
+    identity=document.get('candidate')
+    paths=document.get('artifact_paths')
+    if not isinstance(identity,dict) or not isinstance(paths,dict):
+        raise ValueError('local baseline bundle fields differ')
+    payloads={}
+    for role,name in paths.items():
+        if (not isinstance(role,str) or not role.isidentifier() or not isinstance(name,str)
+                or Path(name).is_absolute() or '..' in Path(name).parts):
+            raise ValueError('local baseline artifact locator differs')
+        artifact=(path.parent/name).resolve(strict=True)
+        if path.parent!=artifact.parent or artifact.is_symlink() or not artifact.is_file():
+            raise ValueError('local baseline artifact escapes its bundle')
+        payloads[role]=artifact.read_bytes()
+    return candidate_from_identity(identity,payloads)
+
+
 def context(root: Path):
     binding=json.loads((root/'campaign/development-binding.json').read_text())
     source=(root/'.deps/cake-ir').resolve(strict=True)
@@ -41,7 +65,6 @@ def context(root: Path):
 def prepare(root: Path) -> dict:
     binding,source=context(root)
     from open_cake_ir.compiler import frontend
-    from open_cake_ir.lab.bindings import load_baseline_bundle
     from open_cake_ir.tasks.workloads import load_workload
     from tools.launch_task import _admit_stack,_prepare_baseline,_runtime_config
     workload_path=root/'campaign/original-workload.json';starter=root/'campaign/candidates/starter.py'
@@ -55,7 +78,7 @@ def prepare(root: Path) -> dict:
     authoring['compiler_revision']=compiler_ref
     bundle=_prepare_baseline(source,preparation,compiler,executor,host,
                              workload,authoring,starter.read_text(),compiler_ref,'triton')
-    baseline=load_baseline_bundle(source,bundle)
+    baseline=load_local_baseline(root,bundle)
     from open_cake_ir.evaluation.paired import candidate_identity
     prepared={'schema_version':1,'fixed_baseline_bundle_path':str(bundle),
               'fixed_baseline_candidate':candidate_identity(baseline),
@@ -120,7 +143,6 @@ def evaluate(root: Path, candidate: Path, identity: str, phase: str, route: str)
     authority=json.loads((root/'campaign/authority.json').read_text())
     runtime=json.loads((root/'campaign/runtime.json').read_text())
     from open_cake_ir.compiler import frontend
-    from open_cake_ir.lab.bindings import load_prepared_baseline
     from open_cake_ir.lab.environments import CandidateSubmission,NativeTritonEnvironment
     from open_cake_ir.lab.runtime import BoundedBrokerEvaluator,CommandBrokerSubmitter
     from open_cake_ir.serialization import canonical_json_bytes
@@ -156,7 +178,8 @@ def evaluate(root: Path, candidate: Path, identity: str, phase: str, route: str)
         write_new(output/'outcome.json',result)
         return result
     broker=runtime['broker'];protocol=authority['evaluation_protocol']
-    _,baseline,_=load_prepared_baseline(source,root/'campaign/prepared-baseline.json')
+    prepared=json.loads((root/'campaign/prepared-baseline.json').read_text())
+    baseline=load_local_baseline(root,Path(prepared['fixed_baseline_bundle_path']))
     submitter=CommandBrokerSubmitter(command=tuple(broker['command']),workload_path=workload_path,
         workload_sha256=workload.canonical_sha256,
         protocol_sha256=sha256(canonical_json_bytes(protocol)).hexdigest(),cwd=Path(broker['cwd']),

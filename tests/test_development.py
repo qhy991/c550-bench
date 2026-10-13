@@ -6,7 +6,7 @@ import unittest
 
 from development.binding import SKILLS, TARGET, validate
 from development.prepare import prepare
-from development.runtime import native_plan
+from development.runtime import load_local_baseline, native_plan
 
 ROOT=Path(__file__).resolve().parents[1]
 TASKS=json.loads((ROOT/'development/tasks.json').read_text())['tasks']
@@ -104,5 +104,12 @@ class DevelopmentPreparation(unittest.TestCase):
             plan['same_contract']=False;(native/'plan.json').write_text(json.dumps(plan))
             with self.assertRaisesRegex(ValueError,'route split'):
                 native_plan(root,candidate,{'task':'rmsnorm'})
+
+    def test_local_baseline_cannot_escape_the_task_preparation_directory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory).resolve();(root/'campaign/baseline-preparation').mkdir(parents=True)
+            foreign=root/'foreign.json';foreign.write_text('{}')
+            with self.assertRaisesRegex(ValueError,'escapes'):
+                load_local_baseline(root,foreign)
 
 if __name__=='__main__':unittest.main()
