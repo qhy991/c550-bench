@@ -35,6 +35,10 @@ def run_process(command,env,timeout,log):
         except subprocess.TimeoutExpired:os.killpg(p.pid,signal.SIGKILL);p.wait()
         return 124
 
+def hmz_command(entry,task):
+    return [str(entry),'exec','-f','development/ralph_flow.py',
+            '-a','claude/glm-5.3:high',task]
+
 def select_nominee():
     profiles={}
     for p in (ROOT/'campaign/evaluations').glob('*/outcome.json'):
@@ -86,8 +90,7 @@ def main(argv=None):
         remaining=max(1,int(deadline['search_stop_at_epoch']-time.time()))
         task=(ROOT/'campaign/TASK.md').read_text()
         with (ROOT/'campaign/logs/ralph.log').open('x') as log:
-            model_exit=run_process([str(entry),'exec','-f','development/ralph_flow.py','-a','claude/glm-5.3:high',
-                '-c','development/budget-3h.yaml',task],env,remaining,log)
+            model_exit=run_process(hmz_command(entry,task),env,remaining,log)
         nominee=select_nominee()
         if nominee:
             _,search_id,row,profile_id=nominee;candidate=row['candidate_path'];route=row['route']

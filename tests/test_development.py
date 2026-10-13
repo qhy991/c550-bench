@@ -8,6 +8,7 @@ from development.binding import SKILLS, TARGET, validate
 from development.prepare import prepare
 from development.runtime import load_local_baseline, native_plan
 from development.queue import DevelopmentQueue
+from development.launch import hmz_command
 
 ROOT=Path(__file__).resolve().parents[1]
 TASKS=json.loads((ROOT/'development/tasks.json').read_text())['tasks']
@@ -112,6 +113,12 @@ class DevelopmentPreparation(unittest.TestCase):
             foreign=root/'foreign.json';foreign.write_text('{}')
             with self.assertRaisesRegex(ValueError,'escapes'):
                 load_local_baseline(root,foreign)
+
+    def test_hmz_uses_the_flow_owned_budget_interface(self):
+        command=hmz_command(Path('/opt/hmz'),'author task')
+        self.assertEqual(command,['/opt/hmz','exec','-f','development/ralph_flow.py',
+                                  '-a','claude/glm-5.3:high','author task'])
+        self.assertNotIn('-c',command)
 
 
 class _Immediate:
