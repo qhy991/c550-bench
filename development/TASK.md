@@ -41,6 +41,12 @@ accepted attribution result. Do not invoke final confirmation.
 
 ## Default Cake route
 
+The evaluation command submits a request to this task's controller and waits for its
+response. The controller performs isolated compilation and device evaluation outside
+the author's process sandbox. Keep the request, response and outcome. Do not invoke the
+controller directly or change its environment. A controller fault closes search;
+record the diagnosis and stop instead of repeating the same check in another session.
+
 Start from `campaign/candidates/starter.py`. Author complete Cake Python Schedules under
 `campaign/candidates/`. Preserve every input-dependent computation, public ABI, dtype,
 rounding boundary, output ownership and original case. Evaluate only through the campaign

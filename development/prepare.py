@@ -10,6 +10,7 @@ import sys
 from .binding import clean_checkout, git, read, render_task, validate
 
 GENERATED = (
+    "campaign/evaluation-requests/",
     "campaign/compiler-actions/", "campaign/evaluations/", "campaign/native-engineering/",
     "campaign/management/", "campaign/logs/", "campaign/baseline-preparation/",
     "campaign/runtime/", "campaign/prepared-baseline.json", "campaign/runtime.json",

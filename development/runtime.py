@@ -240,7 +240,10 @@ def main(argv=None):
     e.add_argument('--phase',choices=('search','confirmation','attribution'),default='search')
     e.add_argument('--route',choices=('cake','native_triton'),default='cake')
     a=p.parse_args(argv);root=Path.cwd().resolve()
-    result=prepare(root) if a.command=='prepare' else evaluate(root,a.candidate,a.id,a.phase,a.route)
+    if a.command=='prepare':result=prepare(root)
+    else:
+        from development.submission import submit
+        result=submit(root,a.candidate,a.id,a.phase,a.route)
     from open_cake_ir.evaluation.core import _plain_json
     print(json.dumps(_plain_json(result),indent=2,sort_keys=True,allow_nan=False))
 if __name__=='__main__':main()

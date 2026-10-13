@@ -28,13 +28,22 @@ def provider_environment(binding):
     return entry,env
 
 def run_process(command,env,timeout,log):
+    from development.submission import abandon_pending,service
     p=subprocess.Popen(command,cwd=ROOT,env=env,stdout=log,stderr=subprocess.STDOUT,start_new_session=True)
-    try:return p.wait(timeout=timeout)
+    stop=time.monotonic()+timeout
+    try:
+        while p.poll() is None:
+            if time.monotonic()>=stop:raise subprocess.TimeoutExpired(command,timeout)
+            service(ROOT,env)
+            time.sleep(0.2)
+        return p.returncode
     except subprocess.TimeoutExpired:
         os.killpg(p.pid,signal.SIGTERM)
         try:p.wait(timeout=15)
         except subprocess.TimeoutExpired:os.killpg(p.pid,signal.SIGKILL);p.wait()
         return 124
+    finally:
+        abandon_pending(ROOT,'author process exited or deadline closed before response')
 
 def hmz_command(entry,task,seconds):
     return [str(entry),'exec','-f','./development/ralph_flow.py',
@@ -120,10 +129,9 @@ def main(argv=None):
                     'expected_source_sha256':row['source_sha256'],'observed_source_sha256':current}
             else:
                 seconds=max(1,int(deadline['stop_at_epoch']-time.time()))
-                with (ROOT/'campaign/logs/confirmation.log').open('x') as log:
-                    code=subprocess.call(['/usr/bin/timeout','--signal=TERM','--kill-after=15s',str(seconds)+'s',
-                        sys.executable,'-m','development.runtime','evaluate','--candidate',candidate,
-                        '--id','final-confirmation','--phase','confirmation','--route',route],env=env,stdout=log,stderr=subprocess.STDOUT)
+                from development.submission import execute
+                code=execute(ROOT,{'candidate':candidate,'id':'final-confirmation',
+                    'phase':'confirmation','route':route},env,seconds,ROOT/'campaign/logs')
                 path=ROOT/'campaign/evaluations/final-confirmation/outcome.json'
                 confirmation=read(path) if path.exists() else {'status':'missing','exit_code':code}
                 if (confirmation.get('source_sha256')!=row['source_sha256']

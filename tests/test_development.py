@@ -1,8 +1,10 @@
 import json
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import unittest
+import time
 from unittest.mock import patch
 
 from development.binding import SKILLS, TARGET, validate
@@ -10,6 +12,8 @@ from development.prepare import prepare
 from development.runtime import evaluation_purpose, load_local_baseline, native_plan
 from development.queue import DevelopmentQueue, reconcile
 from development.launch import hmz_command, release_verified, select_nominee
+from development.submission import abandon_pending, execute, service, validate as validate_request
+from development.owner_evaluation import require_owner
 
 ROOT=Path(__file__).resolve().parents[1]
 TASKS=json.loads((ROOT/'development/tasks.json').read_text())['tasks']
@@ -208,5 +212,71 @@ class DevelopmentQueueTests(unittest.TestCase):
             self.assertEqual(json.loads((state/'terminals/started.json').read_text())['done'],done)
             self.assertEqual(json.loads((state/'terminals/unstarted.json').read_text())['error'],
                              'unstarted_owner_exit')
+
+
+class EvaluationSubmissionTests(unittest.TestCase):
+    def inputs(self,root):
+        folder=root/'campaign/evaluation-requests/attempt';folder.mkdir(parents=True)
+        candidate=root/'campaign/candidates/c.py';candidate.parent.mkdir();candidate.write_text('# source')
+        (root/'campaign/deadline.json').write_text(json.dumps({'search_stop_at_epoch':time.time()+60}))
+        request={'candidate':'campaign/candidates/c.py','id':'attempt','phase':'search','route':'cake'}
+        (folder/'request.json').write_text(json.dumps(request))
+        return folder,request
+
+    def test_controller_executes_each_request_once_and_returns_outcome(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);folder,_=self.inputs(root);calls=[]
+            def runner(root,request,env,remaining,folder):
+                self.assertTrue((folder/'claimed.json').exists());calls.append(request)
+                output=root/'campaign/evaluations/attempt';output.mkdir(parents=True)
+                (output/'outcome.json').write_text(json.dumps({'status':'accepted'}));return 0
+            service(root,{},runner);service(root,{},runner)
+            self.assertEqual(len(calls),1)
+            self.assertEqual(json.loads((folder/'response.json').read_text()),
+                             {'outcome':{'status':'accepted'}})
+
+    def test_unknown_controller_failure_closes_search_without_retry(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);folder,_=self.inputs(root);calls=[]
+            def runner(*args):calls.append(True);return 1
+            service(root,{},runner);service(root,{},runner)
+            self.assertEqual(len(calls),1)
+            self.assertTrue((root/'campaign/SEARCH_CLOSE.json').exists())
+            self.assertTrue(json.loads((folder/'response.json').read_text())['no_retry'])
+
+    def test_author_cannot_request_confirmation_or_a_foreign_candidate(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);_,request=self.inputs(root)
+            request['phase']='confirmation'
+            with self.assertRaisesRegex(ValueError,'owns final'):validate_request(root,request)
+            request['phase']='search';request['candidate']=str(Path(__file__).resolve())
+            with self.assertRaisesRegex(ValueError,'outside'):validate_request(root,request)
+
+    def test_abandoned_request_is_sealed_without_starting_evaluation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);folder,_=self.inputs(root)
+            (folder/'request.json').unlink()
+            abandon_pending(root,'owner stopped')
+            self.assertEqual(json.loads((folder/'response.json').read_text()),
+                             {'error':'owner stopped','no_retry':True})
+
+    def test_owner_entry_refuses_an_ordinary_author_parent(self):
+        with patch('development.owner_evaluation.Path') as path:
+            path.return_value.__truediv__.return_value.read_bytes.return_value=b'python\0author.py\0'
+            with self.assertRaises(PermissionError):require_owner(Path('/tmp/task'))
+
+    def test_evaluation_timeout_terminates_its_process_group(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);folder,request=self.inputs(root)
+            real_popen=subprocess.Popen
+            process=[]
+            def popen(*args,**kwargs):
+                child=real_popen([sys.executable,'-c','import time;time.sleep(60)'],
+                    stdout=kwargs['stdout'],stderr=kwargs['stderr'],start_new_session=True)
+                process.append(child);return child
+            with patch('development.submission.subprocess.Popen',side_effect=popen):
+                with self.assertRaises(subprocess.TimeoutExpired):
+                    execute(root,request,{},0.02,folder)
+            self.assertIsNotNone(process[0].poll())
 
 if __name__=='__main__':unittest.main()
