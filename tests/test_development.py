@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from development.binding import SKILLS, TARGET, validate
 from development.prepare import prepare
-from development.runtime import load_local_baseline, native_plan
+from development.runtime import evaluation_purpose, load_local_baseline, native_plan
 from development.queue import DevelopmentQueue, reconcile
 from development.launch import hmz_command, release_verified, select_nominee
 
@@ -124,6 +124,11 @@ class DevelopmentPreparation(unittest.TestCase):
         flow=(ROOT/'development/ralph_flow.py').read_text()
         self.assertIn('resumable=True',flow)
         self.assertIn('max_rounds',flow)
+
+    def test_confirmation_maps_to_the_evaluators_confirmatory_purpose(self):
+        self.assertEqual(evaluation_purpose('search'),'search')
+        self.assertEqual(evaluation_purpose('attribution'),'attribution')
+        self.assertEqual(evaluation_purpose('confirmation'),'confirmatory')
 
     def test_nomination_requires_one_candidate_identity(self):
         with tempfile.TemporaryDirectory() as directory:

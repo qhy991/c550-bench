@@ -19,6 +19,10 @@ def write_new(path: Path, value: object) -> None:
         stream.write('\n')
 
 
+def evaluation_purpose(phase: str) -> str:
+    return 'confirmatory' if phase == 'confirmation' else phase
+
+
 def retain(root: Path, payloads) -> None:
     root.mkdir(parents=True, exist_ok=False)
     for role, payload in payloads.items():
@@ -201,7 +205,8 @@ def evaluate(root: Path, candidate: Path, identity: str, phase: str, route: str)
         service_group=broker['service_group'],timeout_seconds=broker['timeout_seconds'],
         evaluation_protocol=protocol,baseline=baseline,workload_loader=load_workload)
     logical=BoundedBrokerEvaluator(protocol,submitter).evaluate(
-        built.launchable,case_id='primary',purpose=phase,admission=DeadlineAdmission(root,phase))
+        built.launchable,case_id='primary',purpose=evaluation_purpose(phase),
+        admission=DeadlineAdmission(root,phase))
     attempts=[]
     for number,attempt in enumerate(logical.attempts,1):
         if attempt.artifact_payloads: retain(output/f'attempt-{number}',attempt.artifact_payloads)
