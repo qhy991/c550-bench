@@ -380,12 +380,24 @@ class DevelopmentReportTests(unittest.TestCase):
                 'kind':'c550_hmz_development_allocation','host':'fixture',
                 'compiler':'fixed-compiler','adapter_commit':'fixed-launcher','runs':runs}))
             (state/'terminals/a.json').write_text(json.dumps({'task':'a','error':'unstarted_owner_exit',
-                'exit_code':None,'done':None,'release_verified':False}))
+                'exit_code':None,'done':None,'release_verified':False,'reconciled_after_owner_exit':True}))
             result=development_report(allocation,state)
             self.assertEqual(result['assigned'],2)
             self.assertEqual(result['execution_counts'],{'terminal':1,'unstarted':1})
             self.assertFalse(any(row['confirmation']['qualified'] for row in result['rows']))
             self.assertEqual(result['rows'][0]['terminal_error'],'unstarted_owner_exit')
+
+    def test_unreadable_owner_or_terminal_cannot_be_projected_as_unconsumed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);state=root/'state';workspace=root/'task';workspace.mkdir()
+            (state/'owners').mkdir(parents=True);(state/'terminals').mkdir()
+            allocation=root/'allocation.json';allocation.write_text(json.dumps({
+                'kind':'c550_hmz_development_allocation','host':'fixture','compiler':'fixed',
+                'adapter_commit':'fixed','runs':[{'task':'task','root':str(workspace)}]}))
+            for parent in ('owners','terminals'):
+                path=state/parent/'task.json';path.write_text('{broken')
+                row=development_report(allocation,state)['rows'][0]
+                self.assertIsNone(row['opportunity_consumed']);path.unlink()
 
     def test_partial_or_duplicate_host_views_cannot_claim_all54_coverage(self):
         host={'compiler':'fixed','launcher':'fixed','rows':[{'task':'rmsnorm'}]}

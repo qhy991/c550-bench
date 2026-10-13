@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 
 from campaign.report import _read
-from development.queue import process_alive
+from development.queue import process_alive, unstarted_terminal
 
 
 def observation(path):
@@ -85,11 +85,11 @@ def report(allocation_path,state):
                                'evidence':ref})
         consumed=(True if claim.get('task')==task and claim.get('author_opportunity_consumed') is True
                   else None) if claim is not None else None if claim_ref.get('read_error')!='missing' else False
+        if any(ref.get('read_error') not in (None,'missing')
+               for ref in (terminal_ref,owner_ref,done_ref,deadline_ref)):
+            consumed=None
         if terminal is not None:
-            unstarted=(terminal.get('error') in {'unstarted_owner_exit','unstarted_release_blocked'}
-                and terminal.get('done') is None and terminal.get('exit_code') is None
-                and terminal.get('release_verified') is False)
-            if not unstarted:consumed=True
+            if not unstarted_terminal(task,terminal):consumed=True
         if not consumed and (owner is not None or done is not None or deadline is not None
                 or (state/'commands'/f'{task}.json').exists()):consumed=True
         rows.append({'task':task,'execution':execution,'opportunity_consumed':consumed,

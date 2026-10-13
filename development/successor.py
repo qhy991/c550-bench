@@ -5,7 +5,7 @@ from pathlib import Path
 
 from development.binding import git, read, validate
 from development.prepare import prepare
-from development.queue import process_alive
+from development.queue import process_alive, unstarted_terminal
 
 
 def unclaimed(plan_path, host, previous_allocation, previous_state, repository):
@@ -50,14 +50,7 @@ def unclaimed(plan_path, host, previous_allocation, previous_state, repository):
         value=read(path)
         if path.stem not in previous:raise ValueError('foreign predecessor terminal')
         if value.get('task')!=path.stem:raise ValueError('predecessor terminal task differs')
-        keys={'task','exit_code','done','release_verified','error'}
-        if value.get('error')=='unstarted_owner_exit':keys.add('reconciled_after_owner_exit')
-        if not (set(value)==keys
-                and value.get('error') in {'unstarted_owner_exit','unstarted_release_blocked'}
-                and value.get('done') is None and value.get('exit_code') is None
-                and value.get('release_verified') is False
-                and (value.get('error')!='unstarted_owner_exit'
-                     or value.get('reconciled_after_owner_exit') is True)):
+        if not unstarted_terminal(path.stem,value):
             claimed.add(path.stem)
     for task,run in previous.items():
         root=Path(run['root'])/'campaign'

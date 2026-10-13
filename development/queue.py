@@ -10,6 +10,15 @@ def write_new(path,value):
     with path.open('x') as f:json.dump(value,f,indent=2,sort_keys=True);f.write('\n')
 def read(path):return json.loads(Path(path).read_text())
 def git(root,*args):return subprocess.check_output(['git','-C',str(root),*args],text=True).strip()
+def unstarted_terminal(task,value):
+    keys={'task','exit_code','done','release_verified','error'}
+    if value.get('error')=='unstarted_owner_exit':keys.add('reconciled_after_owner_exit')
+    return (set(value)==keys and value.get('task')==task
+        and value.get('error') in {'unstarted_owner_exit','unstarted_release_blocked'}
+        and value.get('done') is None and value.get('exit_code') is None
+        and value.get('release_verified') is False
+        and (value.get('error')!='unstarted_owner_exit'
+             or value.get('reconciled_after_owner_exit') is True))
 def process_start_ticks(pid):
     try:return Path(f'/proc/{pid}/stat').read_text().split()[21]
     except (FileNotFoundError,ProcessLookupError,PermissionError,OSError):return None
