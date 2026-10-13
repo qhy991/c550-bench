@@ -65,7 +65,9 @@ def main():
         assignments.append({'task':row['task'],'host':host,
             'root':str(Path(hosts[host]['owner_root'])/row['task']),
             'device':hosts[host]['devices'][physical],
-            'source':{name:row[name] for name in ('workload','starter','old_run','prepared_baseline')}})
+            'source':{'workload':row['workload'],'starter':row['starter'],
+                      'prior_run':row['old_run'],
+                      'prepared_baseline':row['prepared_baseline']}})
     document={'schema_version':1,'kind':'c550_hmz_development_round','target':'xcore1002',
         'compiler_commit':a.compiler_commit,'adapter_commit':a.adapter_commit,
         'controls':{'model':'glm-5.3','reasoning_effort':'high','wall_time_seconds':10800,
