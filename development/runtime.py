@@ -150,7 +150,8 @@ def evaluate(root: Path, candidate: Path, identity: str, phase: str, route: str)
     from open_cake_ir.tasks.workloads import load_workload
     from tools.launch_task import _admit_stack,_triton_builder
     workload_path=root/'campaign/original-workload.json';workload=load_workload(workload_path)
-    compiler,executor,_,compiler_ref=_admit_stack(source,output/'build',workload.target,'triton')
+    build_root=output/'build';build_root.mkdir()
+    compiler,executor,_,compiler_ref=_admit_stack(source,build_root,workload.target,'triton')
     builder=_triton_builder(executor,workload)
     if route=='cake':
         from open_cake_ir.lab.python_reference import parse_skeleton
