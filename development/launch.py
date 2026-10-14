@@ -111,7 +111,7 @@ def main(argv=None):
     write_new(ROOT/'campaign/intake.json',{'source_commit':source_commit,
         'task':binding['task'],'compiler':binding['compiler'],'model':'claude/glm-5.3:high',
         'skills':binding['skills'],'routes':binding['routes']})
-    error=None;model_exit=None;confirmation=None
+    error=None;model_exit=None;confirmation=None;confirmation_timeout=None
     try:
         with (ROOT/'campaign/logs/preparation.log').open('x') as log:
             subprocess.run(controller_command(ROOT,'prepare'),env=env,
@@ -132,19 +132,25 @@ def main(argv=None):
             else:
                 seconds=max(1,int(deadline['stop_at_epoch']-time.time()))
                 from development.submission import execute
-                code=execute(ROOT,{'candidate':candidate,'id':'final-confirmation',
-                    'phase':'confirmation','route':route},env,seconds,ROOT/'campaign/logs')
-                path=ROOT/'campaign/evaluations/final-confirmation/outcome.json'
-                confirmation=read(path) if path.exists() else {'status':'missing','exit_code':code}
-                if (confirmation.get('source_sha256')!=row['source_sha256']
-                        or confirmation.get('candidate_sha256')!=row['candidate_sha256']):
-                    confirmation={'status':'candidate_identity_mismatch',
-                        'search_id':search_id,'profile_id':profile_id,'observed':confirmation}
+                try:
+                    code=execute(ROOT,{'candidate':candidate,'id':'final-confirmation',
+                        'phase':'confirmation','route':route},env,seconds,ROOT/'campaign/logs')
+                except subprocess.TimeoutExpired as exc:
+                    confirmation_timeout=exc
+                    confirmation={'status':'budget_exceeded','phase':'confirmation','error':str(exc)}
+                else:
+                    path=ROOT/'campaign/evaluations/final-confirmation/outcome.json'
+                    confirmation=read(path) if path.exists() else {'status':'missing','exit_code':code}
+                    if (confirmation.get('source_sha256')!=row['source_sha256']
+                            or confirmation.get('candidate_sha256')!=row['candidate_sha256']):
+                        confirmation={'status':'candidate_identity_mismatch',
+                            'search_id':search_id,'profile_id':profile_id,'observed':confirmation}
         live=live_task_processes();released=not live
         status='completed' if confirmation and confirmation.get('status')=='accepted' and released else 'no_qualified_result'
         write_new(ROOT/'campaign/DONE.json',{'terminal':True,'status':status,'model_exit':model_exit,
             'device_release_verified':released,'release_basis':'no_live_task_processes',
             'live_task_processes':live,'confirmation':confirmation})
+        if confirmation_timeout is not None:raise confirmation_timeout
         return 0
     except Exception as exc:
         error=type(exc).__name__+': '+str(exc);raise
