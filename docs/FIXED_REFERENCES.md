@@ -73,3 +73,22 @@ Triton kernel/launcher caches and arbitrary candidate code generation require
 their own explicit executable preparation and device-dependent setup evidence.
 They do not inherit qualification from the host helper. Timing, profile and
 strong-reference status remain unqualified.
+
+Trusted reference and assay attempts use one native-cache environment owner in
+`campaign.processes.trusted_attempt_environment`. It creates executable cache
+roots only below the current output for Inductor, Triton and PyTorch extensions.
+The supervisor supplies that environment before spawn. The isolated entry also
+applies the same helper before importing the reference or assay, so standalone
+calls have the same storage policy. `/tmp` remains noexec and TMPDIR stays `/tmp`.
+A noexec output or redirected cache root refuses before admission.
+
+Admission seeds only the CPU-prepared SDK host module into that attempt's Triton
+cache, preserving the SDK's own relative cache key. It retains the source and
+copy paths in runtime-helper-seed.json. The read-only preparation artifact is
+never used as a writable kernel cache, and previous kernels or reference source
+are not copied. Fresh compiler workers receive explicit attempt cache variables
+through the installed Inductor forwarding path. The admission-only build refusal
+still ends after route observation. Later graph-dependent compile, load and
+autotune work is bounded target setup and is not timed performance evidence.
+Candidate-worker caches remain private and separate. This trusted-cache change
+adds no candidate JIT route, timer, profiler gate, allocator or execution mode.

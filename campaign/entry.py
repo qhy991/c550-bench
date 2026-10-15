@@ -24,6 +24,11 @@ def main():
     from campaign.binding import clean_checkout, read_object
     binding = read_object(args.root / 'campaign/binding.json')
     clean_checkout(SOURCE, binding['bench_commit'])
+    if args.action in ('reference', 'assay'):
+        if args.request is None:
+            parser.error('trusted assay requires a request')
+        from campaign.processes import trusted_attempt_environment
+        os.environ.update(trusted_attempt_environment(dict(os.environ), args.request.parent))
     if args.action == 'release':
         if args.request is None:
             parser.error('release requires a create-only observation path')

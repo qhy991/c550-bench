@@ -11,7 +11,8 @@ import time
 from .binding import clean_checkout, read_object
 from .custody import Request, nominate, read_request, snapshot
 from .owner import claim_confirmation, publish_new
-from .processes import clean_environment, run_bounded, sandbox, runtime_environment
+from .processes import (clean_environment, run_bounded, sandbox, runtime_environment,
+                        trusted_attempt_environment)
 
 SOURCE = Path(__file__).resolve().parents[1]
 
@@ -47,7 +48,7 @@ class AssignmentSupervisor:
         command += [self.protocol['deployment']['assay_python'], '-I', str(SOURCE / 'campaign/entry.py'),
                     'assay', '--root', str(self.root), '--state', str(self.state),
                     '--request', str(output / 'request.json')]
-        code = run_bounded(command, cwd=self.root, env=runtime_environment(self.root), stop=stop,
+        code = run_bounded(command, cwd=self.root, env=trusted_attempt_environment(runtime_environment(self.root), output), stop=stop,
                            hard_stop=self.claim['stop_at_epoch'],
                            log=output / 'process.log', process_record=output / 'process.json')
         if code != 0 or not (output / 'result.json').is_file():
@@ -73,9 +74,8 @@ class AssignmentSupervisor:
         command += [self.protocol['deployment']['assay_python'], '-I', str(SOURCE / 'campaign/entry.py'),
                     'reference', '--root', str(self.root), '--state', str(self.state),
                     '--request', str(output / 'request.json')]
-        environment = runtime_environment(self.root)
+        environment = trusted_attempt_environment(runtime_environment(self.root), output)
         environment.update(TORCH_COMPILE_DEBUG='1', TORCH_COMPILE_DEBUG_DIR=str(output / 'compile-debug'),
-                           TORCHINDUCTOR_CACHE_DIR=str(output / 'inductor-cache'),
                            TORCH_LOGS='graph_breaks,recompiles')
         code = run_bounded(command, cwd=self.root, env=environment,
                            stop=request['stop_at_epoch'], hard_stop=request['hard_stop_at_epoch'],

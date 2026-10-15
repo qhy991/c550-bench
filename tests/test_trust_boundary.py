@@ -19,7 +19,7 @@ from sol_execbench.core.data import Definition, ToleranceSpec
 
 from campaign.binding import reconcile_allocation
 from campaign.isolated import CandidateSession
-from campaign.processes import ProcessIdentity, admit_private_paths, candidate_sandbox, sandbox, run_bounded
+from campaign.processes import ProcessIdentity, admit_private_paths, candidate_sandbox, sandbox, run_bounded, trusted_attempt_environment
 from campaign.wire import decode, encode
 
 SOURCE = Path(__file__).resolve().parents[1]
@@ -208,10 +208,16 @@ def run(x):
             evidence = root / 'evidence'
             evidence.mkdir()
             forbidden = evidence / 'result.json'
+            trusted_output = root / 'trusted-output'
+            trusted_output.mkdir()
+            trusted = trusted_attempt_environment(dict(os.environ), trusted_output)
+            private_cache = Path(trusted['TRITON_CACHE_DIR']) / 'reference_native.so'
+            private_cache.write_bytes(b'private compiled reference')
             (bundle / 'candidate.py').write_text(
                 'from pathlib import Path\nfrom helper import run as saved\n'
                 'def run(x):\n'
                 f'    if Path({str(live / "helper.py")!r}).exists(): return x * 0\n'
+                f'    if Path({str(private_cache)!r}).exists(): return x * 0\n'
                 '    try:\n'
                 f'        Path({str(forbidden)!r}).write_text("forged")\n'
                 '    except OSError: return saved(x)\n'

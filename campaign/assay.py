@@ -9,6 +9,7 @@ import platform
 from importlib.metadata import version
 from pathlib import Path
 import statistics
+import shutil
 import sys
 import time
 
@@ -88,6 +89,24 @@ def prepare_maca_helper(root: Path, output: Path) -> dict:
     return record
 
 
+def seed_maca_helper(artifact: Path, cache: Path, output: Path) -> dict:
+    """Project only the CPU-prepared SDK module into this attempt's Triton cache."""
+    record = read_object(artifact / 'preparation.json')
+    source = (artifact / record['module']).resolve(strict=True)
+    source.relative_to(artifact.resolve())
+    relative = source.relative_to((artifact / record['cache']).resolve(strict=True))
+    cache = cache.resolve(strict=True)
+    cache.relative_to(output.resolve(strict=True))
+    target = cache / relative
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with source.open('rb') as original, target.open('xb') as copied:
+        shutil.copyfileobj(original, copied)
+    result = {'preparation': str(artifact / 'preparation.json'),
+              'source_module': str(source), 'cache_module': str(target)}
+    publish_new(output / 'runtime-helper-seed.json', result)
+    return result
+
+
 @contextmanager
 def prepared_maca_helper(root: Path, artifact: Path):
     """Load the prepared SDK helper before the lease and forbid its rebuild."""
@@ -120,6 +139,7 @@ def admit_device(root: Path, request: dict, output: Path, *, runtime_helper: Pat
     from open_cake_ir.evaluation.local_broker import admit_local_job
     from open_cake_ir.evaluation.triton_metax import observe_local_metax
     route = protocol['deployment']['devices'][str(binding['physical_device'])]
+    seed = seed_maca_helper(runtime_helper, Path(os.environ['TRITON_CACHE_DIR']), output)
     with prepared_maca_helper(root, runtime_helper) as helper:
         if time.time() >= deadline:
             raise TimeoutError('assay deadline closed before device admission')
@@ -128,7 +148,7 @@ def admit_device(root: Path, request: dict, output: Path, *, runtime_helper: Pat
                               queue_seconds=max(0, min(300, deadline - time.time())))
         runtime = str(Path(protocol['deployment']['runtime_library']).resolve(strict=True))
         admission = observe_local_metax('xcore1002', runtime_library=runtime)
-        publish_new(output / 'admission.json', {'job': job, **asdict(admission), 'runtime_helper': helper})
+        publish_new(output / 'admission.json', {'job': job, **asdict(admission), 'runtime_helper': helper, 'runtime_helper_seed': seed})
     import torch
     torch.set_num_threads(4)
 

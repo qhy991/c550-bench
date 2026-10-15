@@ -110,6 +110,28 @@ def runtime_environment(root: Path) -> dict:
     return environment
 
 
+def trusted_attempt_environment(environment: dict, output: Path) -> dict:
+    """Place trusted native-code caches on this attempt's executable output."""
+    if sys.platform != 'linux':
+        raise ValueError('trusted C550 native caches require the Linux runtime')
+    output = Path(output)
+    if not output.is_absolute() or output != output.resolve(strict=True):
+        raise ValueError('trusted native caches require the canonical attempt output')
+    if os.statvfs(output).f_flag & os.ST_NOEXEC:
+        raise PermissionError('trusted native caches require an executable attempt filesystem; /tmp stays noexec')
+    result = dict(environment)
+    for variable, name in (('TORCHINDUCTOR_CACHE_DIR', 'inductor-cache'),
+                           ('TRITON_CACHE_DIR', 'triton-cache'),
+                           ('TORCH_EXTENSIONS_DIR', 'torch-extensions')):
+        path = output / name
+        if path.is_symlink():
+            raise ValueError('trusted native cache cannot point outside its attempt')
+        path.mkdir(exist_ok=True)
+        result[variable] = str(path)
+    result['TMPDIR'] = '/tmp'
+    return result
+
+
 def sandbox(root: Path, source: Path, *, writable: list[Path], extra_readonly=(),
             gpu: bool = False, protocol: dict, author: bool = False) -> list[str]:
     """Expose no sibling assignment, owner state, host home, or host process namespace."""
