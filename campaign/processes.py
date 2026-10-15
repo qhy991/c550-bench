@@ -141,7 +141,7 @@ def runtime_environment(root: Path) -> dict:
 
 
 def trusted_attempt_environment(environment: dict, output: Path) -> dict:
-    """Place trusted native-code caches on this attempt's executable output."""
+    """Set trusted caches and serial Inductor compilation before SDK imports."""
     if sys.platform != 'linux':
         raise ValueError('trusted C550 native caches require the Linux runtime')
     output = Path(output)
@@ -150,6 +150,7 @@ def trusted_attempt_environment(environment: dict, output: Path) -> dict:
     if os.statvfs(output).f_flag & os.ST_NOEXEC:
         raise PermissionError('trusted native caches require an executable attempt filesystem; /tmp stays noexec')
     result = dict(environment)
+    result['TORCHINDUCTOR_COMPILE_THREADS'] = '1'
     for variable, name in (('TORCHINDUCTOR_CACHE_DIR', 'inductor-cache'),
                            ('TRITON_CACHE_DIR', 'triton-cache'),
                            ('TORCH_EXTENSIONS_DIR', 'torch-extensions')):

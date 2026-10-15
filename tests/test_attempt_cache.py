@@ -1,4 +1,4 @@
-"""Trusted attempt caches retain scope, filesystem policy and entry ordering."""
+"""Trusted caches and compilation policy retain scope and entry ordering."""
 import json
 import os
 from pathlib import Path
@@ -30,7 +30,10 @@ class AttemptCacheTests(unittest.TestCase):
             first, second = base / 'first', base / 'second'
             first.mkdir()
             second.mkdir()
-            environments = [trusted_attempt_environment(original, output) for output in (first, second)]
+            inherited = [original, {**original, 'TORCHINDUCTOR_COMPILE_THREADS': '32'}]
+            snapshots = [dict(environment) for environment in inherited]
+            environments = [trusted_attempt_environment(environment, output)
+                            for environment, output in zip(inherited, (first, second))]
             for output, environment in zip((first, second), environments):
                 for variable in ('TRITON_CACHE_DIR', 'TORCHINDUCTOR_CACHE_DIR', 'TORCH_EXTENSIONS_DIR'):
                     self.assertTrue(Path(environment[variable]).is_relative_to(output))
@@ -38,9 +41,10 @@ class AttemptCacheTests(unittest.TestCase):
                 self.assertEqual(environment['TMPDIR'], '/tmp')
                 self.assertEqual(environment['CUDA_VISIBLE_DEVICES'], '0')
                 self.assertEqual(environment['LD_LIBRARY_PATH'], original['LD_LIBRARY_PATH'])
+                self.assertEqual(environment['TORCHINDUCTOR_COMPILE_THREADS'], '1')
                 self.assertEqual(trusted_attempt_environment(environment, output), environment)
             self.assertNotEqual(environments[0]['TRITON_CACHE_DIR'], environments[1]['TRITON_CACHE_DIR'])
-            self.assertEqual(original['TRITON_CACHE_DIR'], '/tmp/triton')
+            self.assertEqual(inherited, snapshots)
 
     def test_noexec_output_and_redirected_cache_are_refused_before_use(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -115,9 +119,12 @@ from campaign import entry
 from campaign import reference, assay
 def observed(*args):
     assert 'torch' not in sys.modules and 'triton' not in sys.modules
+    assert os.environ['TORCHINDUCTOR_COMPILE_THREADS'] == '1'
     for name in ('TRITON_CACHE_DIR', 'TORCHINDUCTOR_CACHE_DIR', 'TORCH_EXTENSIONS_DIR'):
         assert Path(os.environ[name]).is_relative_to(Path({str(output)!r}))
     assert os.environ['TMPDIR'] == '/tmp'
+    import torch._inductor.config as config
+    assert config.compile_threads == 1
     print('trusted entry cache setup precedes SDK imports')
 reference.qualify_reference = observed
 assay.evaluate = observed
