@@ -12,6 +12,7 @@ import unittest
 from unittest.mock import patch
 
 import c550bench
+c550bench.upstream()
 from campaign.binding import read_object
 from campaign.processes import sandbox
 from campaign.reference import compiled_original, prepare_reference, qualified_reference, qualify_reference

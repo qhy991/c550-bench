@@ -12,7 +12,7 @@ source and the canonical task projection. The original reference remains in the
 ignored task material. The private adapter copy is a projection of the selected
 tracked file. It is never mounted into the candidate worker or author namespace.
 The author mounts mask the baseline and example directories, the selected file,
-and Git metadata in both the prepared root and the trusted Bench source tree.
+its trusted compilation adapter, Python bytecode caches, and Git metadata in both the prepared root and the trusted Bench source tree.
 The original high-level specification and oracle remain available to the author.
 
 The supervisor consumes one separately bounded reference opportunity before

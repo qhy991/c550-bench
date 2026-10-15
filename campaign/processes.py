@@ -144,10 +144,15 @@ def sandbox(root: Path, source: Path, *, writable: list[Path], extra_readonly=()
                     command += ['--tmpfs', str(path)]
                 elif path.exists():
                     command += ['--ro-bind', '/dev/null', str(path)]
-            selected = tree / baseline
-            if selected.exists() and not any(selected.is_relative_to(tree / name)
-                                             for name in hidden_directories):
-                command += ['--ro-bind', '/dev/null', str(selected)]
+            for relative in dict.fromkeys((baseline, 'campaign/reference.py')):
+                selected = tree / relative
+                if selected.exists() and not any(selected.is_relative_to(tree / name)
+                                                 for name in hidden_directories):
+                    command += ['--ro-bind', '/dev/null', str(selected)]
+                cache = selected.parent / '__pycache__'
+                if cache.is_dir() and not any(cache.is_relative_to(tree / name)
+                                               for name in hidden_directories):
+                    command += ['--tmpfs', str(cache)]
     if gpu:
         command += ['--unshare-net']
         device = read_object(root / 'campaign/binding.json')['physical_device']
