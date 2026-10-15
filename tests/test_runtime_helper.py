@@ -29,6 +29,7 @@ def write(path, value):
 
 
 class HelperBoundaryTests(unittest.TestCase):
+    @unittest.skipUnless(sys.platform == 'linux', 'Linux executable mount flags required')
     def test_noexec_artifact_is_refused_before_any_compiler_or_device_import(self):
         with tempfile.TemporaryDirectory() as directory, patch('campaign.assay.validate_runtime_capture'), patch(
                 'campaign.assay.os.statvfs', return_value=types.SimpleNamespace(f_flag=os.ST_NOEXEC)):
