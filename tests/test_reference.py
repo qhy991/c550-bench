@@ -16,6 +16,7 @@ c550bench.upstream()
 from campaign.binding import read_object
 from campaign.processes import sandbox
 from campaign.reference import compiled_original, prepare_reference, qualified_reference, qualify_reference
+from campaign.supervisor import AssignmentSupervisor
 try:
     from tests.test_campaign import repository, write
 except ModuleNotFoundError:
@@ -118,6 +119,41 @@ class ReferenceTests(unittest.TestCase):
                 qualified_reference(root, receipt)
 
 
+class ReferenceLifecycleTests(unittest.TestCase):
+    def supervisor(self, base):
+        owner = object.__new__(AssignmentSupervisor)
+        owner.root, owner.state = base / 'run', base / 'state'
+        owner.folder = owner.state / 'assignments/one'
+        owner.identity = 'one'
+        owner.binding = {'bench_commit': 'fixture-bench', 'compiler_commit': 'fixture-compiler'}
+        owner.claim = {'search_stop_at_epoch': time.time() + 60}
+        owner.results = []
+        owner.search_closed = False
+        owner.binding_with_commit = lambda: 'fixture-prepared'
+        owner.service = lambda: None
+        return owner
+
+    def test_one_reference_opportunity_precedes_author_and_failure_prevents_author(self):
+        for fail in (False, True):
+            with self.subTest(fail=fail), tempfile.TemporaryDirectory() as directory:
+                owner = self.supervisor(Path(directory))
+                calls = []
+                def reference():
+                    calls.append('reference')
+                    if fail:
+                        raise RuntimeError('reference failed; opportunity consumed')
+                def author():
+                    calls.append('author')
+                    return 0
+                owner.qualify_reference, owner.author = reference, author
+                with patch('campaign.supervisor.clean_checkout'):
+                    result = owner.run()
+                self.assertEqual(calls, ['reference'] if fail else ['reference', 'author'])
+                self.assertEqual(result['performance']['status'], 'coverage_missing')
+                if fail:
+                    self.assertIn('opportunity consumed', result['execution']['reason'])
+
+
 @contextlib.contextmanager
 def cpu_graph_backend():
     from torch._dynamo.backends.registry import lookup_backend
@@ -177,6 +213,9 @@ class AuthorMountTests(unittest.TestCase):
                 for name in ('baselines', 'examples', '.git'):
                     (tree / name).mkdir(parents=True)
                 (tree / 'chosen.py').write_text('secret = 1\n')
+                (tree / 'campaign/__pycache__').mkdir(parents=True)
+                (tree / 'campaign/reference.py').write_text('secret = 1\n')
+                (tree / 'campaign/__pycache__/reference.pyc').write_bytes(b'secret')
             write(root / 'campaign/binding.json', {'baseline': 'chosen.py'})
             protocol = {'deployment': {'bubblewrap': '/usr/bin/bwrap', 'hmz_root': '/hmz',
                                        'hmz_python_root': '/hmz-python', 'provider_native': '/provider'}}
@@ -198,6 +237,9 @@ class AuthorMountTests(unittest.TestCase):
                     (tree / name).mkdir(parents=True)
                     (tree / name / 'private.py').write_text('secret = 1\n')
                 (tree / 'chosen.py').write_text('secret = 1\n')
+                (tree / 'campaign/__pycache__').mkdir(parents=True)
+                (tree / 'campaign/reference.py').write_text('secret = 1\n')
+                (tree / 'campaign/__pycache__/reference.pyc').write_bytes(b'secret')
             write(root / 'campaign/binding.json', {'baseline': 'chosen.py'})
             write(root / '.data/benchmark/L1/fixture/definition.json', {'spec': 'allowed'})
             private = base / 'owner/reference-source'
@@ -208,6 +250,9 @@ class AuthorMountTests(unittest.TestCase):
                 f'assert not Path({str(tree / name / "private.py")!r}).exists()\n'
                 for tree in (root, source) for name in ('baselines', 'examples', '.git')) + ''.join(
                 f'assert Path({str(tree / "chosen.py")!r}).read_bytes() == b""\n'
+                for tree in (root, source)) + ''.join(
+                f'assert Path({str(tree / "campaign/reference.py")!r}).read_bytes() == b""\n'
+                f'assert not Path({str(tree / "campaign/__pycache__/reference.pyc")!r}).exists()\n'
                 for tree in (root, source)) +
                 f'assert not Path({str(private)!r}).exists()\n' +
                 f'assert Path({str(root / ".data/benchmark/L1/fixture/definition.json")!r}).is_file()\n')
