@@ -162,7 +162,7 @@ class AssayTests(unittest.TestCase):
 
     def test_source_gate_refuses_before_reading_allocation_or_provider(self):
         with self.assertRaisesRegex(ValueError, 'remain unqualified'):
-            admit_live(Path('/absent/allocation.json'))
+            admit_live(Path('/absent/allocation.json'), Path('/absent/state'))
 
 
 if __name__ == '__main__':

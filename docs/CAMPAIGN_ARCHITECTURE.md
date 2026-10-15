@@ -72,7 +72,8 @@ complete `run(*inputs)` ABI.
 
 Only the trusted assay imports the oracle and publishes correctness and result files.
 The worker mounts its sealed bundle, two transport files, the selected immutable Compiler
-and runtime dependencies. It cannot see the prepared author workspace, raw oracle,
+and runtime dependencies. Layout admission refuses private workspace or evidence paths
+below those runtime mounts. It cannot see the prepared author workspace, raw oracle,
 trusted request, result directory or other processes. Standard input and output carry
 bounded JSON metadata and tensor bytes. The decoder admits fixed dtypes and value kinds,
 checks lengths before allocation, and never loads pickle or shared tensor storage.

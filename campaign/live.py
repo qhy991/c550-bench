@@ -9,12 +9,12 @@ import time
 
 from .binding import clean_checkout, read_object, reconcile_allocation
 from .owner import CampaignOwner, publish_new
-from .processes import ProcessIdentity, clean_environment, terminate_group, parent_death_signal, DeadlineGuard
+from .processes import ProcessIdentity, clean_environment, terminate_group, parent_death_signal, DeadlineGuard, admit_private_paths
 
 SOURCE = Path(__file__).resolve().parents[1]
 
 
-def admit_live(allocation: Path) -> dict:
+def admit_live(allocation: Path, state: Path) -> dict:
     protocol = read_object(SOURCE / 'campaign/protocol.json')
     if (protocol.get('live_execution') is not True or protocol.get('status') != 'qualified'
             or not protocol.get('qualification_evidence')
@@ -24,6 +24,7 @@ def admit_live(allocation: Path) -> dict:
     if sys.platform != 'linux' or not os.statvfs(SOURCE).f_flag & os.ST_RDONLY:
         raise PermissionError('live Bench source requires a Linux read-only deployment')
     document = read_object(allocation)
+    admit_private_paths([state, *(run['root'] for run in document.get('runs', []))])
     reconcile_allocation(document)
     if document.get('host') != 'c550-2':
         raise ValueError('this deployment admits only the separately qualified c550-2 host')
@@ -166,7 +167,7 @@ def serve(allocation: Path, state: Path):
     state = state.absolute()
     if state != state.resolve() or any((parent / '.git').exists() for parent in [state, *state.parents]):
         raise ValueError('owner state must be canonical and outside checkouts')
-    protocol = admit_live(allocation)
+    protocol = admit_live(allocation, state)
     owner = CampaignOwner(allocation, state)
     return owner.run(LiveLauncher(state, protocol), CanonicalRelease(state))
 

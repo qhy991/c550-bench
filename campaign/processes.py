@@ -13,6 +13,17 @@ import time
 from .binding import read_object
 from .owner import publish_new
 
+RUNTIME_READONLY = ('/usr', '/bin', '/lib', '/lib64', '/opt/conda', '/opt/maca', '/etc/ld.so.cache')
+
+
+def admit_private_paths(paths) -> None:
+    """Private workspaces and evidence cannot be below a worker runtime mount."""
+    for name in RUNTIME_READONLY:
+        runtime = Path(name).resolve()
+        for path in paths:
+            if Path(path).resolve().is_relative_to(runtime):
+                raise ValueError('private campaign path overlaps worker runtime mount: ' + str(path))
+
 
 @dataclass(frozen=True)
 class ProcessIdentity:
@@ -140,7 +151,7 @@ def candidate_sandbox(root: Path, source: Path, bundle: Path, protocol: dict) ->
                '--unshare-pid', '--unshare-ipc', '--unshare-uts', '--unshare-net',
                '--cap-drop', 'ALL', '--proc', '/proc', '--dev', '/dev',
                '--tmpfs', '/tmp', '--tmpfs', '/home', '--dir', '/home/author']
-    for name in ('/usr', '/bin', '/lib', '/lib64', '/opt/conda', '/opt/maca', '/etc/ld.so.cache'):
+    for name in RUNTIME_READONLY:
         if Path(name).exists():
             command += ['--ro-bind', name, name]
     for name in ('worker.py', 'wire.py'):

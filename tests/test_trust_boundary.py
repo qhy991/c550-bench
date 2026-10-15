@@ -19,7 +19,7 @@ from sol_execbench.core.data import Definition, ToleranceSpec
 
 from campaign.binding import reconcile_allocation
 from campaign.isolated import CandidateSession
-from campaign.processes import ProcessIdentity, candidate_sandbox, run_bounded
+from campaign.processes import ProcessIdentity, admit_private_paths, candidate_sandbox, run_bounded
 from campaign.wire import decode, encode
 
 SOURCE = Path(__file__).resolve().parents[1]
@@ -44,6 +44,12 @@ def child(root, source):
 
 
 class IsolationTests(unittest.TestCase):
+    def test_layout_refuses_runtime_ancestor_of_live_author_or_evidence(self):
+        for path in (Path('/usr/live-author'), Path('/opt/conda/owner-state')):
+            with self.subTest(path=path), self.assertRaisesRegex(ValueError, 'overlaps worker runtime'):
+                admit_private_paths([Path('/work/ordinary-campaign'), path])
+        admit_private_paths([Path('/work/ordinary-campaign'), Path('/root/owner-state')])
+
     def test_wrong_output_cannot_patch_trusted_comparison_or_measurement(self):
         definition = Definition.model_validate({
             'name': 'identity', 'axes': {'n': {'type': 'var'}},
