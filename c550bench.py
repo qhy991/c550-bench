@@ -57,7 +57,17 @@ def load_problem(task):
 def load_module(path, name):
     spec = importlib.util.spec_from_file_location(name, path)
     module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    missing = object()
+    previous = sys.modules.get(name, missing)
+    sys.modules[name] = module
+    try:
+        spec.loader.exec_module(module)
+    except BaseException:
+        if previous is missing:
+            sys.modules.pop(name, None)
+        else:
+            sys.modules[name] = previous
+        raise
     return module
 
 
@@ -131,7 +141,7 @@ def validate_c550_identity(device_name, maca_version, expected_name):
         raise RuntimeError("Expected MetaX C550 runtime/device, got " + str(device_name))
 
 
-def check_problem(task, *, device, candidate_path, symbol, reference_selfcheck, workload_scope, rounds, output, seed, threads):
+def check_problem(task, *, device, candidate_path, symbol, reference_selfcheck, workload_scope, rounds, output, seed, threads, candidate_callable=None):
     import torch
     from sol_execbench.core.bench.correctness import set_seed
     from sol_execbench.core.bench.io import gen_inputs
@@ -145,7 +155,8 @@ def check_problem(task, *, device, candidate_path, symbol, reference_selfcheck, 
     custom = getattr(reference, definition.custom_inputs_entrypoint) if definition.custom_inputs_entrypoint else None
     if any(getattr(v, "type", "") == "safetensors" for w in workloads for v in w.inputs.values()):
         raise ValueError("This suite requires complete local input sources; safetensors is not enabled")
-    candidate = reference.run if reference_selfcheck else getattr(load_module(candidate_path, "c550bench_candidate"), symbol)
+    candidate = (reference.run if reference_selfcheck else candidate_callable
+                 if candidate_callable is not None else getattr(load_module(candidate_path, "c550bench_candidate"), symbol))
     if torch.device(device).type == "cuda":
         if not torch.cuda.is_available():
             raise RuntimeError("CUDA-compatible MetaX device is unavailable")
