@@ -1,8 +1,9 @@
-"""Original whole-task correctness, paired full-call events and separate MCPTI."""
+"""Trusted whole-task oracle with isolated candidates and explicit measurement coverage."""
 from __future__ import annotations
 
 from dataclasses import asdict
 import math
+import os
 import platform
 from importlib.metadata import version
 from pathlib import Path
@@ -45,69 +46,6 @@ def paired_summary(rows: list[dict]) -> dict:
             'workloads': rows, 'profiler_enabled': False}
 
 
-class WholeCallTimer:
-    def __init__(self, torch, l2_bytes: int):
-        self.torch = torch
-        if type(l2_bytes) is not int or l2_bytes <= 0:
-            raise ValueError('whole-call reset requires declared target L2')
-        if torch.cuda.get_device_properties(0).L2_cache_size != l2_bytes:
-            raise ValueError('observed L2 differs from target')
-        self.stream = torch.cuda.default_stream(0)
-        self.reset = torch.empty(TIMING['reset_l2_multiple'] * l2_bytes // 4,
-                                 dtype=torch.float32, device='cuda:0')
-        self.begin = torch.cuda.Event(enable_timing=True)
-        self.end = torch.cuda.Event(enable_timing=True)
-        with torch.cuda.stream(self.stream):
-            self.reset.fill_(1)
-            self.begin.record(self.stream)
-            self.end.record(self.stream)
-            self.end.synchronize()
-
-    def sample(self, function, inputs):
-        import c550bench
-        torch = self.torch
-        values = c550bench.cloned_inputs(inputs)
-        with torch.cuda.stream(self.stream):
-            self.reset.fill_(1)
-            torch.cuda.synchronize(0)
-            self.begin.record(self.stream)
-            self.begin.synchronize()
-            output = function(*values)
-            torch.cuda.synchronize(0)
-            self.end.record(self.stream)
-            self.end.synchronize()
-            elapsed = float(self.begin.elapsed_time(self.end))
-        del output, values
-        return elapsed
-
-
-def profile_full_call(torch, function, inputs, library: str) -> dict:
-    import c550bench
-    from open_cake_ir.evaluation.metax_activity import activity_collector
-    collector = activity_collector(library)
-    values = c550bench.cloned_inputs(inputs)
-    torch.cuda.synchronize(0)
-    collector.begin()
-    try:
-        output = function(*values)
-        torch.cuda.synchronize(0)
-    finally:
-        activity = collector.finish()
-    del output, values
-    if (activity.get('dropped_records') != 0 or activity.get('pending_buffers') != 0
-            or activity.get('collection_errors') or not activity.get('records')):
-        raise ValueError('whole-call MCPTI coverage is incomplete')
-    kernels = [row for row in activity['records'] if row['kind'] == 10]
-    if not kernels or any(row.get('device') != 0 or row.get('end_ns', 0) <= row.get('start_ns', 0)
-                          for row in kernels):
-        raise ValueError('whole-call MCPTI has no complete admitted device activity')
-    unmodeled = sorted({row['kind'] for row in activity['records']} - {4, 5, 10})
-    return {'status': 'coverage_missing' if unmodeled else 'passed',
-            'unmodeled_activity_kinds': unmodeled, 'kind': 'maca_complete_callable_activity',
-            'kernel_count': len(kernels), 'activity': activity,
-            'scope': 'complete invocation, separate from unprofiled event samples'}
-
-
 def validate_runtime_capture(root: Path):
     host = read_object(root / '.deps/cake-ir/runtime/hosts/xcore1002.json')['host_environment']
     if platform.python_version() != host['python']['version']:
@@ -130,7 +68,6 @@ def evaluate(root: Path, request: dict, output: Path) -> dict:
     sys.path.insert(0, str(compiler / 'src'))
     from open_cake_ir.evaluation.local_broker import admit_local_job
     from open_cake_ir.evaluation.triton_metax import observe_local_metax
-    from open_cake_ir.compiler.target import declared_target
     route = protocol['deployment']['devices'][str(binding['physical_device'])]
     job = admit_local_job('maca', device=binding['physical_device'], lock_scope='device',
                           runtime_device=route['runtime_device'], expected_pci=route['expected_pci'],
@@ -143,12 +80,37 @@ def evaluate(root: Path, request: dict, output: Path) -> dict:
     c550bench.ROOT = root
     c550bench.upstream()
     task = c550bench.task_record(binding['task'])
-    candidate = Path(request['snapshot']) / 'candidate.py'
-    sys.path.insert(0, str(candidate.parent))
-    correctness = c550bench.check_problem(
-        task, device='cuda:0', candidate_path=candidate, symbol='run',
-        reference_selfcheck=False, workload_scope='all', rounds=10,
-        output=output / 'correctness.json', seed=c550bench.document('suite.json')['seed'], threads=4)
+    definition, workloads, _, _ = c550bench.load_problem(task)
+    if [row.uuid for row in workloads] != binding['workload_ids']:
+        raise ValueError('assay workload order differs from frozen original UUIDs')
+    from sol_execbench.core.data.dtypes import dtype_str_to_torch_dtype
+    maximum_output_bytes = max(sum(
+        math.prod(shape or ()) * torch.empty((), dtype=dtype_str_to_torch_dtype(
+            definition.outputs[name].dtype)).element_size()
+        for name, shape in definition.get_output_shapes(workload.axes).items())
+        for workload in workloads)
+    from .isolated import CandidateSession
+    from .processes import candidate_sandbox, runtime_environment
+    candidate = Path(request['snapshot'])
+    worker_output = output / 'worker'
+    worker_output.mkdir()
+    # The untrusted process receives only input values and returns value bytes.
+    # The canonical oracle and result files never enter its namespace or descriptors.
+    environment = runtime_environment(root)
+    for key in ('MACA_VISIBLE_DEVICES', 'CUDA_VISIBLE_DEVICES', 'MC_VISIBLE_DEVICES'):
+        if key in os.environ:
+            environment[key] = os.environ[key]
+    with CandidateSession(candidate_sandbox(root, Path(__file__).resolve().parents[1],
+                          candidate, protocol), environment=environment, directory=worker_output,
+                          stop=deadline, hard_stop=request['hard_stop_at_epoch'],
+                          maximum_output_bytes=maximum_output_bytes, device='cuda:0') as run:
+        correctness = c550bench.check_problem(
+            task, device='cuda:0', candidate_path=candidate / 'candidate.py', symbol='run',
+            reference_selfcheck=False, workload_scope='all', rounds=10,
+            output=output / 'correctness.json', seed=c550bench.document('suite.json')['seed'],
+            threads=4, candidate_callable=run)
+        if run.failure is not None:
+            raise RuntimeError('candidate transport outcome unknown; no retry: ' + run.failure)
     rows = {}
     for case in correctness['cases']:
         cell = rows.setdefault(case['workload_uuid'], {'correctness': {'status': 'passed', 'rounds': 0}})
@@ -156,74 +118,19 @@ def evaluate(root: Path, request: dict, output: Path) -> dict:
         if not case['passed']:
             cell['correctness']['status'] = 'failed'
     result = {'id': request['id'], 'candidate': request['candidate'], 'phase': request['phase'],
-              'status': 'incorrect', 'correctness': {'status': correctness['status'],
-              'full_device_correctness': correctness['full_device_correctness']}, 'workloads': rows}
-    if not correctness['full_device_correctness']:
-        result['completed_at_epoch'] = time.time()
-        publish_new(output / 'result.json', result)
-        return result
-    definition, workloads, _, task_root = c550bench.load_problem(task)
-    if [row.uuid for row in workloads] != binding['workload_ids']:
-        raise ValueError('assay workload order differs from frozen original UUIDs')
-    reference = c550bench.load_module(task_root / 'reference.py', 'whole_task_reference')
-    custom = getattr(reference, definition.custom_inputs_entrypoint) if definition.custom_inputs_entrypoint else None
-    from sol_execbench.core.bench.io import gen_inputs
-    from sol_execbench.core.bench.correctness import set_seed
-    set_seed(c550bench.document('suite.json')['seed'])
-    candidate_run = c550bench.load_module(candidate, 'whole_task_candidate').run
-    baseline_run = c550bench.load_module(root / binding['baseline'], 'whole_task_baseline').run
-    baseline = c550bench.check_problem(
-        task, device='cuda:0', candidate_path=root / binding['baseline'], symbol='run',
-        reference_selfcheck=False, workload_scope='all', rounds=10,
-        output=output / 'baseline-correctness.json', seed=c550bench.document('suite.json')['seed'], threads=4)
-    if not baseline['full_device_correctness']:
-        raise ValueError('fixed baseline failed the original whole-task oracle')
-    observations = []
-    timer = WholeCallTimer(torch, declared_target('xcore1002').l2_cache_bytes)
-    for workload in workloads:
-        if time.time() >= deadline:
-            raise TimeoutError('whole-task assay exceeded its original deadline')
-        inputs = gen_inputs(definition, workload, 'cuda:0', custom_inputs_fn=custom)
-        if request['phase'] == 'profile':
-            profiles = {}
-            for role, function in (('baseline', baseline_run), ('candidate', candidate_run)):
-                for _ in range(WARMUPS):
-                    values = c550bench.cloned_inputs(inputs)
-                    value = function(*values)
-                    torch.cuda.synchronize(0)
-                    del values, value
-                profiles[role] = profile_full_call(torch, function, inputs,
-                    str(Path(protocol['deployment']['activity_library']).resolve(strict=True)))
-            publish_new(output / f'profile-{workload.uuid}.json', profiles)
-            rows[workload.uuid]['profile'] = {'status': 'passed' if all(
-                value['status'] == 'passed' for value in profiles.values()) else 'coverage_missing'}
-        else:
-            for function in (baseline_run, candidate_run):
-                for _ in range(WARMUPS):
-                    timer.sample(function, inputs)
-            pairs = []
-            for index in range(PAIRS):
-                pair = {}
-                order = ('baseline', 'candidate') if index % 2 == 0 else ('candidate', 'baseline')
-                for role in order:
-                    if time.time() >= deadline:
-                        raise TimeoutError('timing exceeded its original deadline')
-                    pair[role] = timer.sample(baseline_run if role == 'baseline' else candidate_run, inputs)
-                pairs.append(pair)
-            observations.append({'uuid': workload.uuid, 'pairs': pairs})
-            publish_new(output / f'timing-{workload.uuid}.json', observations[-1])
-        del inputs
-    result['status'] = 'passed'
-    if request['phase'] != 'profile':
-        result['measurement'] = paired_summary(observations)
-        for row in observations:
-            rows[row['uuid']]['measurement'] = {'status': 'passed' if result['measurement']['quality_passed'] else 'quality_failed', **row}
-    else:
-        complete = all(row['profile']['status'] == 'passed' for row in rows.values())
-        result['status'] = 'passed' if complete else 'coverage_missing'
-        result['profile'] = {'status': result['status'], 'workloads': len(workloads)}
-    result['completed_at_epoch'] = time.time()
+              'status': 'coverage_missing' if correctness['full_device_correctness'] else 'incorrect',
+              'correctness': {'status': correctness['status'],
+                              'full_device_correctness': correctness['full_device_correctness']},
+              'workloads': rows, 'measurement': isolated_measurement_coverage(),
+              'profile': isolated_measurement_coverage(), 'completed_at_epoch': time.time()}
     if result['completed_at_epoch'] >= deadline:
         raise TimeoutError('assay completed after its original deadline')
     publish_new(output / 'result.json', result)
     return result
+
+
+def isolated_measurement_coverage() -> dict:
+    return {'status': 'coverage_missing', 'quality_passed': False,
+            'reason': 'no qualified trusted cross-process complete-call timer or MCPTI collector',
+            'required_evidence': 'C550 worker-context completion, complete callable interval, reset, '
+                                 'paired baseline samples and independent MCPTI ownership'}

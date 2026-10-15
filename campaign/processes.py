@@ -7,6 +7,7 @@ import ctypes
 from pathlib import Path
 import signal
 import subprocess
+import sys
 import time
 
 from .binding import read_object
@@ -39,17 +40,35 @@ def parent_death_signal():
         os.kill(os.getpid(), signal.SIGKILL)
 
 
-def terminate_group(process: subprocess.Popen) -> None:
-    for sig, seconds in ((signal.SIGTERM, 2), (signal.SIGKILL, 5)):
+def terminate_group(process: subprocess.Popen, *, stop: float) -> None:
+    """Kill immediately; the caller's existing deadline includes reaping."""
+    process.poll()
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    process.wait(timeout=max(0, stop - time.time()))
+
+
+class DeadlineGuard:
+    def __init__(self, process, stop):
         try:
-            os.killpg(process.pid, sig)
-        except ProcessLookupError:
-            break
-        try:
-            process.wait(timeout=seconds)
-        except subprocess.TimeoutExpired:
-            continue
-    process.wait(timeout=5)
+            identity = ProcessIdentity.observe(process.pid)
+            self.guard = subprocess.Popen(
+                [sys.executable, '-I', str(Path(__file__).with_name('deadline.py')),
+                 str(process.pid), str(stop), identity.start_ticks], stdin=subprocess.PIPE,
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                start_new_session=True, close_fds=True)
+        except BaseException:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            raise
+
+    def close(self, stop):
+        self.guard.stdin.close()
+        self.guard.wait(timeout=max(0, stop - time.time()))
 
 
 def clean_environment() -> dict:
@@ -69,7 +88,7 @@ def runtime_environment(root: Path) -> dict:
 
 
 def sandbox(root: Path, source: Path, *, writable: list[Path], extra_readonly=(),
-            gpu: bool = False, protocol: dict) -> list[str]:
+            gpu: bool = False, protocol: dict, author: bool = False) -> list[str]:
     """Expose no sibling assignment, owner state, host home, or host process namespace."""
     deployment = protocol['deployment']
     command = [deployment['bubblewrap'], '--die-with-parent', '--new-session',
@@ -83,7 +102,15 @@ def sandbox(root: Path, source: Path, *, writable: list[Path], extra_readonly=()
     for path in (Path('/etc/ld.so.cache'), Path('/etc/resolv.conf'), Path('/etc/hosts'), Path('/etc/ssl')):
         if path.exists():
             command += ['--ro-bind', str(path), str(path)]
-    for path in dict.fromkeys((source, root, *map(Path, extra_readonly))):
+    if author:
+        roots = (source, root)
+    else:
+        binding = read_object(root / 'campaign/binding.json')
+        roots = (source, root / 'suite.json', root / 'sources.lock.json',
+                 root / 'campaign/binding.json', root / 'campaign/protocol.json',
+                 root / '.deps/cake-ir', root / '.deps/sol-execbench',
+                 root / '.data/benchmark' / binding['task'], root / binding['baseline'])
+    for path in dict.fromkeys((*roots, *map(Path, extra_readonly))):
         command += ['--ro-bind', str(path), str(path)]
     for path in writable:
         command += ['--bind', str(path), str(path)]
@@ -106,14 +133,40 @@ def sandbox(root: Path, source: Path, *, writable: list[Path], extra_readonly=()
     return [*command, '--chdir', str(root)]
 
 
+def candidate_sandbox(root: Path, source: Path, bundle: Path, protocol: dict) -> list[str]:
+    """The worker sees only its immutable bundle and explicit runtime dependencies."""
+    deployment = protocol['deployment']
+    command = [deployment['bubblewrap'], '--die-with-parent', '--new-session',
+               '--unshare-pid', '--unshare-ipc', '--unshare-uts', '--unshare-net',
+               '--cap-drop', 'ALL', '--proc', '/proc', '--dev', '/dev',
+               '--tmpfs', '/tmp', '--tmpfs', '/home', '--dir', '/home/author']
+    for name in ('/usr', '/bin', '/lib', '/lib64', '/opt/conda', '/opt/maca', '/etc/ld.so.cache'):
+        if Path(name).exists():
+            command += ['--ro-bind', name, name]
+    for name in ('worker.py', 'wire.py'):
+        command += ['--ro-bind', str(source / 'campaign' / name), '/worker/' + name]
+    command += ['--ro-bind', str(bundle), '/bundle',
+                '--ro-bind', str(root / '.deps/cake-ir'), '/compiler']
+    device = read_object(root / 'campaign/binding.json')['physical_device']
+    route = deployment['devices'][str(device)]
+    for path in (deployment['control_device_node'], route['render_node']):
+        command += ['--dev-bind', path, path]
+    return [*command, '--chdir', '/bundle', deployment['assay_python'], '-I',
+            '/worker/worker.py', '/bundle', 'cuda:0', '/compiler']
+
+
 def run_bounded(command: list[str], *, cwd: Path, env: dict, stop: float,
-                log: Path, process_record: Path, service=None) -> int:
+                log: Path, process_record: Path, service=None, hard_stop: float | None = None) -> int:
+    hard_stop = stop if hard_stop is None else hard_stop
+    if stop > hard_stop:
+        raise ValueError('execution cannot exceed its hard deadline')
     if time.time() >= stop:
         raise TimeoutError('process opportunity consumed after deadline')
     with log.open('x') as output:
         process = subprocess.Popen(command, cwd=cwd, env=env, stdout=output,
                                    stderr=subprocess.STDOUT, start_new_session=True,
                                    preexec_fn=parent_death_signal)
+        guard = DeadlineGuard(process, stop)
         try:
             identity = ProcessIdentity.observe(process.pid)
             publish_new(process_record, {'pid': identity.pid, 'start_ticks': identity.start_ticks})
@@ -122,9 +175,14 @@ def run_bounded(command: list[str], *, cwd: Path, env: dict, stop: float,
                     raise TimeoutError('process deadline expired')
                 if service is not None:
                     service()
-                time.sleep(0.1)
+                time.sleep(min(0.1, max(0, stop - time.time())))
+            if time.time() >= stop:
+                raise TimeoutError('process deadline expired')
             return process.returncode
         finally:
             # A completed leader can leave children. The private PID namespace and
             # this process group are owned by this invocation only.
-            terminate_group(process)
+            try:
+                terminate_group(process, stop=hard_stop)
+            finally:
+                guard.close(hard_stop)

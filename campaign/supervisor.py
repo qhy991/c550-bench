@@ -30,9 +30,11 @@ class AssignmentSupervisor:
     def execute(self, identity: str, phase: str, candidate: str) -> dict:
         output = self.folder / 'evaluations' / identity
         output.mkdir(parents=True, exist_ok=False)
-        stop = self.claim['stop_at_epoch'] if phase == 'confirmation' else self.claim['search_stop_at_epoch']
+        stop = (self.claim['execution_stop_at_epoch'] if phase == 'confirmation'
+                else self.claim['search_stop_at_epoch'])
         request = {'id': identity, 'phase': phase, 'candidate': candidate,
-                   'snapshot': str(self.folder / 'snapshots' / candidate), 'stop_at_epoch': stop}
+                   'snapshot': str(self.folder / 'snapshots' / candidate), 'stop_at_epoch': stop,
+                   'hard_stop_at_epoch': self.claim['stop_at_epoch']}
         publish_new(output / 'request.json', request)
         command = sandbox(self.root, SOURCE, writable=[output],
                           extra_readonly=[self.folder / 'snapshots' / candidate],
@@ -42,6 +44,7 @@ class AssignmentSupervisor:
                     'assay', '--root', str(self.root), '--state', str(self.state),
                     '--request', str(output / 'request.json')]
         code = run_bounded(command, cwd=self.root, env=runtime_environment(self.root), stop=stop,
+                           hard_stop=self.claim['stop_at_epoch'],
                            log=output / 'process.log', process_record=output / 'process.json')
         if code != 0 or not (output / 'result.json').is_file():
             raise RuntimeError(f'assay outcome unknown, exit {code}; this opportunity is consumed')
@@ -94,7 +97,7 @@ class AssignmentSupervisor:
                     ('candidates', 'schedules', 'compiler-actions', 'requests')]
         home = self.folder / 'author-home'
         home.mkdir()
-        command = sandbox(self.root, SOURCE, writable=writable, protocol=self.protocol)
+        command = sandbox(self.root, SOURCE, writable=writable, protocol=self.protocol, author=True)
         command += ['--bind', str(home), '/home/author',
                     str(Path(deployment['hmz_root']) / 'bin/hmz'), 'exec',
                     '-f', str(SOURCE / 'campaign/author_flow.py'),
@@ -112,6 +115,7 @@ class AssignmentSupervisor:
         env['PATH'] = os.pathsep.join((str(Path(deployment['hmz_root']) / 'bin'),
                                       deployment['provider_native'], env['PATH']))
         return run_bounded(command, cwd=self.root, env=env, stop=self.claim['search_stop_at_epoch'],
+                           hard_stop=self.claim['stop_at_epoch'],
                            log=self.folder / 'author.log', process_record=self.folder / 'author-process.json',
                            service=self.service)
 
@@ -151,6 +155,9 @@ class AssignmentSupervisor:
                 confirmation = {'status': 'unknown', 'no_retry': True,
                                 'reason': f'{type(error).__name__}: {error}'}
         selected = next((row for row in self.results if nominee and row['id'] == nominee['search_evaluation']), {})
+        if not selected:
+            selected = next((row for row in reversed(self.results)
+                             if row.get('phase') == 'search' and row.get('correctness')), {})
         confirmed = (confirmation.get('status') == 'passed'
                      and confirmation.get('measurement', {}).get('quality_passed') is True)
         status = ('confirmed' if confirmed else 'confirmation_failed') if nominee else 'no_qualified_candidate'
@@ -164,7 +171,8 @@ class AssignmentSupervisor:
         result = {'assignment_id': self.identity,
                   'execution': {'status': status, 'author_exit': author_exit, 'reason': failure},
                   'correctness': selected.get('correctness', {'status': 'missing'}),
-                  'performance': {'status': 'measured' if selected else 'coverage_missing',
+                  'performance': {'status': 'measured' if selected.get('measurement', {}).get('quality_passed') is True
+                                  else 'coverage_missing',
                                   'search': selected.get('measurement'),
                                   'confirmation': confirmation.get('measurement')},
                   'confirmation': confirmation, 'profile': {'status': 'passed' if nominee else 'missing'},

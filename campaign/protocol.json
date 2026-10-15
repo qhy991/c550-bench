@@ -9,7 +9,7 @@
     "owner": "c550bench.check_problem"
   },
   "timing": {
-    "status": "unqualified",
+    "status": "coverage_missing",
     "timer": "maca_pytorch_events_complete_callable",
     "measured_interval": "start_event_synchronized_then_run_then_device_synchronize_then_end_event",
     "device_state_reset": "fresh_cloned_inputs_and_fp32_fill_4x_target_l2_before_start",
@@ -19,12 +19,14 @@
       "order": "alternating_baseline_candidate",
       "maximum_relative_mad": 0.1
     },
-    "reset_l2_multiple": 4
+    "reset_l2_multiple": 4,
+    "trust_boundary": "candidate runs in a separate process; parent events cannot establish the child interval"
   },
   "profiling": {
-    "status": "unqualified",
+    "status": "coverage_missing",
     "kind": "maca_complete_callable_activity",
-    "separate_from_timing": true
+    "separate_from_timing": true,
+    "trust_boundary": "MCPTI callbacks in the candidate process cannot publish trusted evidence"
   },
   "release": {
     "status": "unqualified",
@@ -33,7 +35,7 @@
   "live_execution": false,
   "isolation": {
     "status": "unqualified",
-    "mechanism": "bubblewrap_private_pid_and_mount_namespaces",
+    "mechanism": "separate_candidate_process_with_bounded_value_transport_and_private_pid_mount_namespaces",
     "author_gpu_access": false
   },
   "qualification_evidence": null,
@@ -91,5 +93,6 @@
     },
     "image_qualification": "required_before_live_admission",
     "control_device_node": "/dev/mxcd"
-  }
+  },
+  "shutdown_reserve_seconds": 15
 }

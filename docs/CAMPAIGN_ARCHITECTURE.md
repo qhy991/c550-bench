@@ -33,8 +33,9 @@ rounds. The confirmation reserve is part of that assignment's total budget.
 
 `campaign/live.py` implements `AuthorLauncher` and `ReleaseVerifier`. It starts one
 trusted supervisor per assignment from read-only source under isolated Python imports.
-The supervisor is bound to the owner's process lifetime. The launcher enforces the total
-deadline if the supervisor stops making progress.
+The supervisor is bound to the owner's process lifetime. An independent guardian kills the owned process group at the execution cutoff even
+when its controller blocks. The cutoff reserves fifteen seconds of the original total
+budget for process exit and canonical release. Cleanup adds no grace period.
 
 `campaign/supervisor.py` owns that assignment's author, requests and candidate custody.
 It checks the frozen Compiler catalog before invoking the real HMZ asynchronous flow in
@@ -45,8 +46,10 @@ The author runs in a private bubblewrap PID and mount namespace. It sees the sel
 Bench, Compiler and original task material read-only. Its candidate, Schedule, Compiler
 action, request and private home directories are writable. The author has no GPU device
 nodes or owner state. Assays use separate private namespaces with the exact selected
-render node and canonical MACA lock files. Process groups and private namespaces bound
-all child processes to their original deadline.
+render node and canonical MACA lock files. The trusted assay keeps the canonical locks
+open through candidate termination and its own device-context exit. Candidate workers
+receive no lock descriptors. Their private PID namespace contains every descendant,
+including descendants that create a new session.
 
 `campaign/custody.py` admits create-only requests. A request is claimed before source
 copy or execution. Search snapshots every Python and JSON file in the candidate's own
@@ -61,29 +64,37 @@ and cannot select another candidate or establish a new deadline.
 
 ## Whole-call assay
 
-`campaign/assay.py` calls the unchanged `c550bench.check_problem` for the candidate and
-fixed baseline. It uses all original UUIDs, ten fresh input rounds and the original
-reference and comparator. The selected Compiler is imported in a fresh process for each
-assay. Before allocation, the assay checks Python and package versions against the selected
-Compiler's `runtime/hosts/xcore1002.json`. It uses that capture's build environment and
-refuses a mismatch without switching images or patching the capture. Its canonical `local_broker.admit_local_job` and `observe_local_metax` own MACA
-allocation, exact target admission and physical/runtime/PCI mapping.
+`campaign/assay.py` retains `c550bench.check_problem` as the correctness owner. It
+passes a candidate callable that performs a value exchange with a separate process.
+The original input generator, reference, comparator, UUIDs and ten fresh rounds remain
+unchanged. A persistent worker preserves candidate state across calls and executes the
+complete `run(*inputs)` ABI.
 
-Timing covers the complete `run(*inputs)` invocation. Each sample clones fresh inputs,
-fills four times the Target's declared L2 size and synchronizes before the start event.
-The start event completes before the callable begins. The entire device completes after
-the callable returns and before the end event. Thus asynchronous work and host submission
-and synchronization gaps belong to the interval. This is not a kernel-only duration.
-The implementation uses eleven warmup calls and ten alternating baseline/candidate pairs
-per UUID. It retains every sample, median and relative median absolute deviation.
-A relative deviation above 0.10 fails measurement quality. No timing retry is automatic.
+Only the trusted assay imports the oracle and publishes correctness and result files.
+The worker mounts its sealed bundle, two transport files, the selected immutable Compiler
+and runtime dependencies. It cannot see the prepared author workspace, raw oracle,
+trusted request, result directory or other processes. Standard input and output carry
+bounded JSON metadata and tensor bytes. The decoder admits fixed dtypes and value kinds,
+checks lengths before allocation, and never loads pickle or shared tensor storage.
+Candidate output shapes and dtypes remain subject to the original comparator. A worker
+exit or malformed response consumes the request and closes search as unknown.
 
-A separate profile invocation uses the selected Compiler's MCPTI activity collector.
-It retains full-call activity for the baseline and the exact candidate snapshot on every
-UUID. Missing records, invalid device activity and unmodeled activity kinds prevent
-profile eligibility. The present collector models kernels and API calls. Copy and
-memset kinds without decoded records report `coverage_missing`. Event duration never
-substitutes for missing profile coverage.
+Before allocation, the assay checks Python and package versions against the selected
+Compiler's `runtime/hosts/xcore1002.json`. It uses that capture's build environment.
+The canonical `local_broker.admit_local_job` and `observe_local_metax` own MACA allocation,
+exact target admission and physical/runtime/PCI mapping.
+
+Whole-call timing and profile currently return `coverage_missing`. The worker cannot
+publish elapsed times, profile records or acceptance fields. Events recorded in the
+trusted process do not establish completion or elapsed time in a candidate's context.
+A native MCPTI collector inside the candidate process would still share candidate memory
+and descriptors. Neither mechanism is used as trusted measurement.
+
+The retained protocol specifies fresh clones, a four-L2 reset, eleven warmups, ten
+alternating baseline/candidate pairs per UUID and the relative MAD gate. An independently
+controlled C550 mechanism must establish that full interval, asynchronous completion and
+separate MCPTI coverage for the exact saved candidate and fixed baseline before timing
+can run. Host wall time and single-kernel records do not satisfy that contract.
 
 ## Release and recovery
 
@@ -96,7 +107,11 @@ own descriptors. Missing process custody, an alive owned process, a busy lock or
 lock returns `unverified`. The owner blocks later assignments on that physical identity.
 It never kills a foreign process or releases another assignment's descriptors.
 
-The allocation remains the report denominator. Unstarted, unknown, incorrect, failed
+The committed frozen plan and routing remain the denominator. Preparation records a
+`plan_source` commit reference. Admission, lifecycle ownership and reporting reconcile
+every assignment id, task, condition, replicate, Compiler and physical route against it.
+A missing arm is refused with its missing assignment ids before any launch or report.
+The host allocation cannot redefine the denominator by dropping rows. Unstarted, unknown, incorrect, failed
 quality, missing profile and failed confirmation results all retain sixteen workload
 rows. Correctness, measurement, profile, confirmation, release and independent review
 are separate fields. No report automatically accepts a Compiler or claims a speedup.
@@ -105,8 +120,8 @@ are separate fields. No report automatically accepts a Compiler or claims a spee
 
 The committed protocol remains `live_execution=false`. CPU software tests establish
 request and lifecycle behavior, not MACA timing or isolation qualification. The exact
-immutable toolchain image, C550-2 physical mappings, complete asynchronous callable event
-interval, cache reset, sample quality, MCPTI coverage, isolated HMZ author and real
+immutable toolchain image, C550-2 physical mappings, independent complete-call measurement,
+cache reset, sample quality, MCPTI ownership, Linux namespace isolation, isolated HMZ author and real
 canonical release require retained device evidence before a reviewed source change can
 open intake. Full twelve-task material and fixed baseline admission are separate gates.
 The observed historical ten-task material cannot establish those gates.

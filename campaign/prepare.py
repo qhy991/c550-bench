@@ -190,6 +190,7 @@ def prepare(plan_path: Path, routing_path: Path, host: str, output: Path) -> dic
         "kind": "c550_bench_host_allocation",
         "host": host,
         "start_window_seconds": config["start_window_seconds"],
+        "plan_source": {key: records[0][key] for key in ("root", "prepared_commit")},
         "runs": records,
         "scope": "prepared without provider or GPU; live MetaX adapter not qualified",
     }

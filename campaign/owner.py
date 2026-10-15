@@ -12,7 +12,7 @@ import tempfile
 import time
 from typing import Protocol
 
-from .binding import git, read_object
+from .binding import git, read_object, reconcile_allocation
 from .report import report
 
 
@@ -71,8 +71,12 @@ class CampaignOwner:
                        or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,95}", value)
                        for value in identities)):
             raise ValueError("host allocation has invalid assignment identities")
+        reconcile_allocation(self.document)
+        self.shutdown_reserve = read_object(Path(__file__).with_name('protocol.json'))['shutdown_reserve_seconds']
         capacities = {}
         for run in runs:
+            if run['author']['confirmation_seconds'] <= self.shutdown_reserve:
+                raise ValueError('confirmation budget must include the shutdown reserve')
             capacity = run.get("author_capacity")
             if type(capacity) is not int or not 1 <= capacity <= 3:
                 raise ValueError("assignment has invalid author capacity")
@@ -167,6 +171,7 @@ class CampaignOwner:
                             "claimed_at_epoch": now,
                             "search_stop_at_epoch": now + total - confirmation,
                             "stop_at_epoch": now + total,
+                            "execution_stop_at_epoch": now + total - self.shutdown_reserve,
                             "author_opportunity_consumed": True,
                         }
                         publish_new(self.state / "claims" / f"{run['assignment_id']}.json", claim)

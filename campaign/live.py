@@ -7,9 +7,9 @@ import subprocess
 import sys
 import time
 
-from .binding import clean_checkout, read_object
+from .binding import clean_checkout, read_object, reconcile_allocation
 from .owner import CampaignOwner, publish_new
-from .processes import ProcessIdentity, clean_environment, terminate_group, parent_death_signal
+from .processes import ProcessIdentity, clean_environment, terminate_group, parent_death_signal, DeadlineGuard
 
 SOURCE = Path(__file__).resolve().parents[1]
 
@@ -24,6 +24,7 @@ def admit_live(allocation: Path) -> dict:
     if sys.platform != 'linux' or not os.statvfs(SOURCE).f_flag & os.ST_RDONLY:
         raise PermissionError('live Bench source requires a Linux read-only deployment')
     document = read_object(allocation)
+    reconcile_allocation(document)
     if document.get('host') != 'c550-2':
         raise ValueError('this deployment admits only the separately qualified c550-2 host')
     tasks = {row['id'] for row in read_object(SOURCE / 'suite.json')['tasks']}
@@ -49,15 +50,17 @@ def admit_live(allocation: Path) -> dict:
 
 
 class SupervisorHandle:
-    def __init__(self, process, stop, log):
-        self.process, self.stop, self.log = process, stop, log
+    def __init__(self, process, stop, hard_stop, log):
+        self.process, self.stop, self.hard_stop, self.log = process, stop, hard_stop, log
+        self.guard = DeadlineGuard(process, stop)
 
     def poll(self):
         code = self.process.poll()
-        if code is None and time.time() > self.stop + 10:
-            terminate_group(self.process)
+        if code is None and time.time() >= self.stop:
+            terminate_group(self.process, stop=self.hard_stop)
             code = self.process.returncode
         if code is not None:
+            self.guard.close(self.hard_stop)
             self.log.close()
         return code
 
@@ -79,12 +82,13 @@ class LiveLauncher:
             identity = ProcessIdentity.observe(process.pid)
             publish_new(self.state / 'supervisors' / f"{run['assignment_id']}.json",
                         {'pid': identity.pid, 'start_ticks': identity.start_ticks})
+            handle = SupervisorHandle(process, claim['execution_stop_at_epoch'], claim['stop_at_epoch'], log)
         except BaseException:
             if 'process' in locals():
-                terminate_group(process)
+                terminate_group(process, stop=claim['stop_at_epoch'])
             log.close()
             raise
-        return SupervisorHandle(process, claim['stop_at_epoch'], log)
+        return handle
 
     def terminal(self, run: dict, handle, exit_code: int):
         if exit_code != 0:
@@ -110,8 +114,12 @@ class CanonicalRelease:
         output.parent.mkdir(parents=True, exist_ok=True)
         command = [sys.executable, '-I', str(SOURCE / 'campaign/entry.py'), 'release',
                    '--root', run['root'], '--state', str(self.state), '--request', str(output)]
+        remaining = claim['stop_at_epoch'] - time.time()
+        if remaining <= 0:
+            return self.unverified(run, 'hard deadline elapsed before canonical release observation')
         code = subprocess.run(command, env=clean_environment(), cwd=SOURCE,
-                              stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=15).returncode
+                              stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+                              timeout=min(15, remaining)).returncode
         if code != 0 or not output.is_file():
             return self.unverified(run, 'canonical lock release observation failed')
         result = read_object(output)

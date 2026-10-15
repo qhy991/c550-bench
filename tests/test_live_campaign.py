@@ -11,7 +11,7 @@ import types
 import unittest
 from unittest.mock import patch
 
-from campaign.assay import PAIRS, WholeCallTimer, paired_summary
+from campaign.assay import PAIRS, isolated_measurement_coverage, paired_summary
 from campaign.custody import Request, nominate, snapshot
 from campaign.live import admit_live
 from campaign.owner import claim_confirmation, publish_new
@@ -130,11 +130,12 @@ class DeadlineTests(unittest.TestCase):
     def test_real_process_group_exits_when_original_deadline_expires(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            with patch('campaign.processes.parent_death_signal'), patch.object(
-                    ProcessIdentity, 'observe', side_effect=lambda pid: ProcessIdentity(pid, 'cpu-test')):
+            with patch('campaign.processes.parent_death_signal'), (patch.object(
+                    ProcessIdentity, 'observe', side_effect=lambda pid: ProcessIdentity(pid, 'cpu-test'))
+                    if sys.platform != 'linux' else contextlib.nullcontext()):
                 with self.assertRaises(TimeoutError):
                     run_bounded([sys.executable, '-c', 'import time; time.sleep(60)'],
-                                cwd=root, env=dict(os.environ), stop=time.time() + 0.2,
+                                cwd=root, env=dict(os.environ), stop=time.time() + 0.2, hard_stop=time.time() + 2,
                                 log=root / 'log', process_record=root / 'process.json')
             process = json.loads((root / 'process.json').read_text())
             with self.assertRaises(ProcessLookupError):
@@ -143,30 +144,11 @@ class DeadlineTests(unittest.TestCase):
 
 
 class AssayTests(unittest.TestCase):
-    def test_event_interval_contains_complete_callable_and_async_completion(self):
-        calls = []
-        class Event:
-            def __init__(self, name): self.name = name
-            def record(self, stream): calls.append(self.name + '-record')
-            def synchronize(self): calls.append(self.name + '-sync')
-            def elapsed_time(self, other): return 5.0
-        names = iter(['begin', 'end'])
-        stream = object()
-        cuda = types.SimpleNamespace(
-            default_stream=lambda _: stream, stream=lambda _: contextlib.nullcontext(),
-            get_device_properties=lambda _: types.SimpleNamespace(L2_cache_size=4),
-            Event=lambda **_: Event(next(names)), synchronize=lambda _: calls.append('device-sync'))
-        torch = types.SimpleNamespace(cuda=cuda, float32='fp32',
-            empty=lambda *a, **k: types.SimpleNamespace(fill_=lambda _: calls.append('reset')))
-        timer = WholeCallTimer(torch, 4)
-        calls.clear()
-        def run(*inputs):
-            calls.extend(['kernel-one', 'kernel-two-async'])
-            return 42
-        with patch('c550bench.cloned_inputs', return_value=[1]):
-            self.assertEqual(timer.sample(run, [1]), 5.0)
-        self.assertEqual(calls, ['reset', 'device-sync', 'begin-record', 'begin-sync',
-                                'kernel-one', 'kernel-two-async', 'device-sync', 'end-record', 'end-sync'])
+    def test_child_event_or_profile_reports_cannot_establish_measurement(self):
+        result = isolated_measurement_coverage()
+        self.assertEqual(result['status'], 'coverage_missing')
+        self.assertFalse(result['quality_passed'])
+        self.assertNotIn('candidate_over_baseline', result)
 
     def test_measurement_rejects_missing_samples_and_nonfinite_values(self):
         for samples in ([{'baseline': 1, 'candidate': 1}] * 9,
