@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 import re
 
-from .binding import read_object
+from .binding import read_object, reconcile_allocation
 
 
 def _read(path: Path) -> tuple[dict | None, str | None]:
@@ -37,6 +37,7 @@ def _workloads(run: dict, terminal: dict | None) -> list[dict]:
             "uuid": identity,
             "correctness": _evidence(value.get("correctness"), "unexamined"),
             "measurement": _evidence(value.get("measurement"), "unexamined"),
+            "profile": _evidence(value.get("profile"), "unexamined"),
             "confirmation": _evidence(value.get("confirmation"), "unexamined"),
         })
     return rows
@@ -46,6 +47,7 @@ def report(allocation_path: Path, state_directory: Path | None = None) -> dict:
     allocation = read_object(allocation_path)
     if allocation.get("schema_version") != 1 or allocation.get("kind") != "c550_bench_host_allocation":
         raise ValueError("unsupported C550 host allocation")
+    reconcile_allocation(allocation)
     state = Path(state_directory) if state_directory is not None else None
     rows = []
     for run in allocation.get("runs", []):
@@ -80,6 +82,7 @@ def report(allocation_path: Path, state_directory: Path | None = None) -> dict:
             "correctness": _evidence((terminal or {}).get("correctness")),
             "performance": _evidence((terminal or {}).get("performance"), "coverage_missing"),
             "confirmation": _evidence((terminal or {}).get("confirmation")),
+            "profile": _evidence((terminal or {}).get("profile")),
             "release": release_projection,
             "review": review_projection,
             "workloads": _workloads(run, terminal),
