@@ -63,33 +63,40 @@ reservation and provider start. It also rejects a `c550bench.campaign` hierarchy
 
 ## Implementation reconciliation
 
-The implementation keeps only `prepare` and `report` in the public CLI. `CampaignOwner`
-implements and tests the queue policy internally, but no `serve` command exposes it until
-the MetaX gateway and assay are qualified. This narrows the initial public surface while
-preserving the designed lifecycle contract; Issue #3 and PR #4 accept that boundary.
+Issue #3 and PR #4 established the preparation, report and internal owner boundary.
+Issue #7 adds concrete source-bound adapters behind the same owner. Two independent
+design passes in the successor work selected a per-assignment trusted supervisor over
+a persistent evaluation service. A persistent service would introduce another lifecycle
+and recovery coordinator without a second consumer.
 
-Preparation records the existing materialized task-data root and requires its Suite v2
-source receipt instead of copying raw licensed material into Git. A future live adapter
-must mount that exact root read-only and recheck the binding. This keeps raw data outside
-source while making its custody an explicit live qualification requirement.
+The public `serve` command exists and refuses before intake while the tracked protocol
+is unqualified. `reconcile` only publishes terminal evidence after owner loss. Author,
+assay and release use fixed source-selected entry points. A caller cannot provide a shell
+command or qualification document.
 
-The selected shared `hmz_compiler_tools.py` is checked against its producing commit,
-copied into each fresh workspace and used to freeze the Compiler catalog before intake.
-The complete 25-test suite passed at `34e944e` in the existing C550 no-network, no-GPU,
-no-key CPU container. A future live adapter remains a separate reviewed change and must
-update the usage and outcome contracts here before it becomes callable.
+Preparation clones the pinned upstream helper source and copies the assignment's original
+task material into its ignored `.data` directory. The prepared data binding records the
+copy and its source root. The author and assay see that copy read-only. Raw data remains
+outside source control. Full suite material admission remains distinct from software tests.
 
-## Open questions and risks
+The shared `hmz_compiler_tools.py` remains checked against its producing commit, copied
+into each workspace and used to freeze the Compiler catalog. The concrete HMZ flow checks
+that catalog and includes `author_context(root)` in the actual fresh author prompt.
 
-- Which existing MetaX gateway will own Run-wide admission closure and canonical release?
-- Which event timer, interval, reset and profiler evidence will qualify complete callable
-  measurement?
-- Which stable physical identity reconciles container-visible ordinals and PCI devices?
+The whole-call timer synchronizes a start event before `run(*inputs)` and waits for all
+device work before its end event. It deliberately includes host submission and
+synchronization gaps. The original `c550bench.check_problem` remains the correctness
+owner. Profile and confirmation consume the same saved candidate directory.
 
-These questions block live launch, not CPU-only preparation and owner tests.
+## Qualification limits
 
-## Next implementation step
+The implementation leaves live intake closed. Actual isolated author operation, complete
+callable timing with asynchronous work, MCPTI coverage and canonical release require
+C550-2 evidence. The source-bound runtime paths and physical/PCI mappings are discovered
+inputs, not qualifications. The selected Compiler host capture owns Python and package
+versions. A different image must not be substituted to make that capture pass.
 
-Implement frozen allocation admission, create-only preparation and complete-denominator
-reporting, then add the internal owner with crash injection around dispatch, confirmation
-and release.
+The existing MCPTI collector does not decode copy or memset records. A full-call profile
+that observes those kinds reports a coverage limitation. It cannot make a candidate
+eligible. Fixed baselines and all twelve tasks' material require independent admission
+before a comparison. No complete-task or performance result is established here.

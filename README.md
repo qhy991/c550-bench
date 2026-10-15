@@ -80,7 +80,11 @@ python3 -m campaign report --allocation /intent/c550-a/allocation.json
 
 当前 [Campaign protocol](campaign/protocol.json) 明确标记 live 路线尚未资格化。
 在 C550 的事件计时区间、设备状态重置、profile、进程 deadline 和 canonical release
-terminal 经过独立验收前，没有公开的 live `serve` 命令。12 题固定强 baseline 也必须
+terminal 经过独立验收前，`python3 -m campaign serve --allocation ABS --state ABS`
+会在 provider/GPU intake 前拒绝执行。源码已经实现整题 author、可信 supervisor、
+原始正确性检查、完整 callable 计时、独立 profile、单次确认和 canonical release。
+`reconcile` 只补齐已失去 owner 的终态，不重启作者或评估。
+12 题固定强 baseline 也必须
 先作为 plan 的 tracked files 完成资格；不能用初始 Cake 实现静默替换。
 设计和状态机见 [Campaign architecture](docs/CAMPAIGN_ARCHITECTURE.md)。
 

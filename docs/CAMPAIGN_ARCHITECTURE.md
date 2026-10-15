@@ -1,109 +1,112 @@
 # MetaX whole-task campaign architecture
 
-This document defines the CPU-verifiable campaign owner for fresh C550 Bench search.
-It does not qualify a live device route or start an experiment.
+The Bench owns one finite campaign and one complete callable per assignment. The
+implementation includes the author, trusted supervisor, device assay and release
+observer. `campaign/protocol.json` keeps live execution unqualified until C550-2
+qualification covers those exact mechanisms.
 
-## Supported use
+## Public commands
 
-Open-Cake freezes the complete comparison intent before any workspace exists:
-
-```bash
-python3 tools/evolve.py freeze-bench \
-  --draft /intent/draft.json \
-  --bench /checkouts/c550-bench \
-  --control /checkouts/cake-control \
-  --successor /checkouts/cake-successor \
-  --output /intent/plan.json
-```
-
-The Bench then validates one complete routing document and prepares a fresh workspace
-for every frozen allocation. Preparation has no provider or GPU capability.
+Open-Cake freezes the comparison through `tools/evolve.py freeze-bench`. The Bench
+prepares its allocations without provider or GPU access:
 
 ```bash
-python3 -m campaign prepare \
-  --plan /intent/plan.json \
-  --routing /intent/routing.json \
-  --host c550-a \
-  --output /intent/c550-a/allocation.json
-
-python3 -m campaign report --allocation /intent/c550-a/allocation.json
+python3 -m campaign prepare --plan /intent/plan.json --routing /intent/routing.json \
+  --host c550-2 --output /intent/c550-2/allocation.json
+python3 -m campaign report --allocation /intent/c550-2/allocation.json
+python3 -m campaign serve --allocation /intent/c550-2/allocation.json --state /evidence/owner
+python3 -m campaign reconcile --allocation /intent/c550-2/allocation.json --state /evidence/owner
 ```
 
-Live execution remains unavailable until a separate change binds a reviewed MetaX
-author process, exact device gateway, event timer, profiler policy and release receipt.
-No generic shell command or user-supplied qualification file enables execution.
+`serve` reads the tracked protocol from its own clean, read-only source checkout.
+It refuses before intake while timing, profile, isolation or release is unqualified.
+It accepts no shell command, model override, deadline override or qualification file.
+`reconcile` only seals retained terminal and release evidence after the owner and its
+supervisors have exited. It never repeats an author, request or confirmation.
 
-## Invariants
+## Ownership and custody
 
-- One assignment contains one original task, all sixteen ordered workload UUIDs and one
-  total wall budget. Search uses `total - confirmation`; confirmation has no new clock.
-- The frozen allocation is the report denominator. Missing files, an unstarted Run and
-  malformed evidence never remove an assignment or workload.
-- A create-only dispatch claim is written before provider or device side effects. The
-  claim permanently consumes that author opportunity, including the crash gap before
-  process start. Confirmation uses the same irreversible claim rule.
-- One owner writes lifecycle records. Authors only propose source. The owner snapshots
-  candidates and owns evaluation, nomination, confirmation and terminal publication.
-- The queue schedules authors. The admitted MetaX gateway alone owns device admission
-  and release. Missing or contradictory release evidence blocks later authors on the
-  same physical identity; independent devices may continue.
-- Independent attribution review requires terminal execution and verified canonical
-  release. It cannot change a nominee, restart search or add measurements.
-- Correctness, performance, profiler coverage, confirmation, release and review remain
-  separate result fields. A command exit or correct output does not imply a speed result.
+`campaign/owner.py` owns dispatch claims, total deadlines, finite scheduling, terminals,
+release publication and the full denominator. Each claim includes the prepared commit.
+One assignment contains all sixteen original workload UUIDs and ten fresh correctness
+rounds. The confirmation reserve is part of that assignment's total budget.
 
-## Internal shape
+`campaign/live.py` implements `AuthorLauncher` and `ReleaseVerifier`. It starts one
+trusted supervisor per assignment from read-only source under isolated Python imports.
+The supervisor is bound to the owner's process lifetime. The launcher enforces the total
+deadline if the supervisor stops making progress.
 
-The public surface is preparation and reporting. The queue owner is internal until the
-concrete live adapters are qualified.
+`campaign/supervisor.py` owns that assignment's author, requests and candidate custody.
+It checks the frozen Compiler catalog before invoking the real HMZ asynchronous flow in
+`campaign/author_flow.py`. One fresh HMZ session receives the selected scaffold and
+`author_context(root)`. There is no second author or replacement after failure.
 
-```python
-def prepare(plan: Path, routing: Path, host: str, output: Path) -> HostAllocation:
-    """Create every fresh host workspace; call no provider or GPU."""
-    raise NotImplementedError
+The author runs in a private bubblewrap PID and mount namespace. It sees the selected
+Bench, Compiler and original task material read-only. Its candidate, Schedule, Compiler
+action, request and private home directories are writable. The author has no GPU device
+nodes or owner state. Assays use separate private namespaces with the exact selected
+render node and canonical MACA lock files. Process groups and private namespaces bound
+all child processes to their original deadline.
 
-def report(allocation: Path, state_directory: Path | None = None) -> CampaignReport:
-    """Return every assignment and every original workload, including missing states."""
-    raise NotImplementedError
+`campaign/custody.py` admits create-only requests. A request is claimed before source
+copy or execution. Search snapshots every Python and JSON file in the candidate's own
+directory, refusing links and nonregular files. A candidate id can be snapshotted once.
+The saved directory is read-only in every assay. A profile or confirmation refers to
+that saved directory, never the author's subsequently edited copy. The owner retains
+unknown and incomplete attempts and closes search after an uncertain request outcome.
 
-class CampaignOwner:
-    def run(self, launcher: AuthorLauncher, release: ReleaseVerifier) -> CampaignReport:
-        """Drain unclaimed allocations without ever restarting a claimed author."""
-        raise NotImplementedError
-```
+One eligible search result and matching profile determine the nominee. The supervisor
+consumes `claim_confirmation` before confirmation starts. Failure retains that nominee
+and cannot select another candidate or establish a new deadline.
 
-`campaign/binding.py` owns frozen plan, routing and prepared-workspace admission.
-`campaign/prepare.py` owns create-only workspace construction and the pinned Compiler
-tool catalog. `campaign/owner.py` owns claims, deadlines, finite scheduling and release
-blocking. `campaign/report.py` derives the full denominator from the allocation and
-retained evidence. `campaign/__main__.py` is a thin boundary.
+## Whole-call assay
 
-The Compiler seam is an exact copy of the selected shared
-`tools/hmz_compiler_tools.py`. Preparation runs `freeze` before intake. A future live
-adapter must call `catalog(root)` at intake, add `author_context(root)` to every actual
-prompt and expose `inspect`, `transform` and `verify` in a fresh condition process.
-The Bench does not import the open-cake-ir Run engine.
+`campaign/assay.py` calls the unchanged `c550bench.check_problem` for the candidate and
+fixed baseline. It uses all original UUIDs, ten fresh input rounds and the original
+reference and comparator. The selected Compiler is imported in a fresh process for each
+assay. Before allocation, the assay checks Python and package versions against the selected
+Compiler's `runtime/hosts/xcore1002.json`. It uses that capture's build environment and
+refuses a mismatch without switching images or patching the capture. Its canonical `local_broker.admit_local_job` and `observe_local_metax` own MACA
+allocation, exact target admission and physical/runtime/PCI mapping.
 
-## State and recovery
+Timing covers the complete `run(*inputs)` invocation. Each sample clones fresh inputs,
+fills four times the Target's declared L2 size and synchronizes before the start event.
+The start event completes before the callable begins. The entire device completes after
+the callable returns and before the end event. Thus asynchronous work and host submission
+and synchronization gaps belong to the interval. This is not a kernel-only duration.
+The implementation uses eleven warmup calls and ten alternating baseline/candidate pairs
+per UUID. It retains every sample, median and relative median absolute deviation.
+A relative deviation above 0.10 fails measurement quality. No timing retry is automatic.
 
-Per assignment the projected lifecycle is:
+A separate profile invocation uses the selected Compiler's MCPTI activity collector.
+It retains full-call activity for the baseline and the exact candidate snapshot on every
+UUID. Missing records, invalid device activity and unmodeled activity kinds prevent
+profile eligibility. The present collector models kernels and API calls. Copy and
+memset kinds without decoded records report `coverage_missing`. Event duration never
+substitutes for missing profile coverage.
 
-`prepared -> claimed -> searching -> nominated -> confirming -> terminal`
+## Release and recovery
 
-Failure, timeout, unknown and no-gain are terminal execution classifications. Release
-and owner review are orthogonal. A malformed or uncertain claim is unknown and remains
-consumed. Owner recovery may continue unclaimed allocations inside the start window;
-it never restarts a claimed author or confirmation. Cleanup and release observation may
-continue after the budget, but provider, authoring and measurement work may not.
+The supervisor writes no campaign-level release certificate. After it exits,
+`CanonicalRelease` checks every recorded owned process identity using PID and start
+ticks. A fresh process imports the selected Compiler's canonical MACA lock primitives,
+checks the existing legacy and physical-device lock identities, and acquires the shared
+legacy lock and exclusive device lock. It retains that observation before closing its
+own descriptors. Missing process custody, an alive owned process, a busy lock or a changed
+lock returns `unverified`. The owner blocks later assignments on that physical identity.
+It never kills a foreign process or releases another assignment's descriptors.
 
-Every assignment report contains all sixteen workload UUIDs. Each UUID separately
-states correctness, measurement and confirmation as evidence, coverage limitation,
-missing or unexamined. Early failure therefore preserves the remaining denominator.
+The allocation remains the report denominator. Unstarted, unknown, incorrect, failed
+quality, missing profile and failed confirmation results all retain sixteen workload
+rows. Correctness, measurement, profile, confirmation, release and independent review
+are separate fields. No report automatically accepts a Compiler or claims a speedup.
 
-## Live qualification still required
+## Remaining live qualifications
 
-Production execution must refuse until evidence binds the exact physical C550 identity,
-Compiler target and route, immutable toolchain image, event timer and measured interval,
-device-state reset, warmup/sample policy, profiler coverage, process deadline enforcement
-and canonical release terminal. HCU, ROCm, CUDA, CUPTI and DCU wall-timing assumptions
-are not defaults for this campaign.
+The committed protocol remains `live_execution=false`. CPU software tests establish
+request and lifecycle behavior, not MACA timing or isolation qualification. The exact
+immutable toolchain image, C550-2 physical mappings, complete asynchronous callable event
+interval, cache reset, sample quality, MCPTI coverage, isolated HMZ author and real
+canonical release require retained device evidence before a reviewed source change can
+open intake. Full twelve-task material and fixed baseline admission are separate gates.
+The observed historical ten-task material cannot establish those gates.

@@ -37,6 +37,7 @@ def _workloads(run: dict, terminal: dict | None) -> list[dict]:
             "uuid": identity,
             "correctness": _evidence(value.get("correctness"), "unexamined"),
             "measurement": _evidence(value.get("measurement"), "unexamined"),
+            "profile": _evidence(value.get("profile"), "unexamined"),
             "confirmation": _evidence(value.get("confirmation"), "unexamined"),
         })
     return rows
@@ -80,6 +81,7 @@ def report(allocation_path: Path, state_directory: Path | None = None) -> dict:
             "correctness": _evidence((terminal or {}).get("correctness")),
             "performance": _evidence((terminal or {}).get("performance"), "coverage_missing"),
             "confirmation": _evidence((terminal or {}).get("confirmation")),
+            "profile": _evidence((terminal or {}).get("profile")),
             "release": release_projection,
             "review": review_projection,
             "workloads": _workloads(run, terminal),

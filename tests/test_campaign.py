@@ -42,9 +42,13 @@ class PreparationTests(unittest.TestCase):
         base = Path(directory).resolve()
         suite = json.loads((ROOT / "suite.json").read_text())
         baselines = {}
+        upstream_root = base / "upstream"
+        upstream_commit = repository(upstream_root, {"src/sol_execbench/core/__init__.py": ""})
+        sources = json.loads((ROOT / "sources.lock.json").read_text())
+        sources["sol_execbench"]["revision"] = upstream_commit
         bench_files = {
             "suite.json": json.dumps(suite),
-            "sources.lock.json": (ROOT / "sources.lock.json").read_text(),
+            "sources.lock.json": json.dumps(sources),
             "campaign/protocol.json": json.dumps({"timer": "qualification_required"}),
             "campaign/TASK.md": "# Fixture whole-task author scaffold\n",
             ".gitignore": ".deps/\n.data/\n",
@@ -62,12 +66,14 @@ class PreparationTests(unittest.TestCase):
             rows += [{"uuid": f"{task_index:02d}-workload-{index:02d}"} for index in range(1, 16)]
             (task_root / "workload.jsonl").write_text("".join(json.dumps(row) + "\n" for row in rows))
         write(data / "materialization-suite-v2.json", {
-            "sources": json.loads((ROOT / "sources.lock.json").read_text()),
+            "sources": sources,
             "tasks": [{"task": task["id"], "workloads": 16} for task in suite["tasks"]],
             "raw_dataset_in_git": False,
         })
         bench = base / "bench"
         bench_commit = repository(bench, bench_files)
+        (bench / ".deps").mkdir()
+        subprocess.run(["git", "clone", "-q", str(upstream_root), str(bench / ".deps/sol-execbench")], check=True)
         compilers = {}
         compiler_commits = {}
         for condition in ("control", "successor"):

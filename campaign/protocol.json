@@ -10,17 +10,86 @@
   },
   "timing": {
     "status": "unqualified",
-    "timer": null,
-    "measured_interval": null,
-    "device_state_reset": null,
-    "sample_policy": null
+    "timer": "maca_pytorch_events_complete_callable",
+    "measured_interval": "start_event_synchronized_then_run_then_device_synchronize_then_end_event",
+    "device_state_reset": "fresh_cloned_inputs_and_fp32_fill_4x_target_l2_before_start",
+    "sample_policy": {
+      "warmups": 11,
+      "paired_samples_per_workload": 10,
+      "order": "alternating_baseline_candidate",
+      "maximum_relative_mad": 0.1
+    },
+    "reset_l2_multiple": 4
   },
   "profiling": {
-    "status": "unqualified"
+    "status": "unqualified",
+    "kind": "maca_complete_callable_activity",
+    "separate_from_timing": true
   },
   "release": {
     "status": "unqualified",
-    "canonical_terminal": null
+    "canonical_terminal": "owned_process_namespaces_exited_and_canonical_locks_acquired"
   },
-  "live_execution": false
+  "live_execution": false,
+  "isolation": {
+    "status": "unqualified",
+    "mechanism": "bubblewrap_private_pid_and_mount_namespaces",
+    "author_gpu_access": false
+  },
+  "qualification_evidence": null,
+  "deployment": {
+    "host": "c550-2",
+    "bubblewrap": "/usr/bin/bwrap",
+    "assay_python": "/opt/conda/bin/python",
+    "hmz_root": "/work/hmz-portable",
+    "hmz_python_root": "/work/python312",
+    "provider_native": "/provider-native",
+    "provider_credential": "/provider-auth/credential",
+    "runtime_library": "/opt/maca/lib/libmcruntime.so",
+    "activity_library": "/opt/maca/lib/libmcpti.so",
+    "devices": {
+      "0": {
+        "runtime_device": 0,
+        "expected_pci": "0000:0f:00",
+        "render_node": "/dev/dri/renderD128"
+      },
+      "1": {
+        "runtime_device": 1,
+        "expected_pci": "0000:34:00",
+        "render_node": "/dev/dri/renderD129"
+      },
+      "2": {
+        "runtime_device": 2,
+        "expected_pci": "0000:48:00",
+        "render_node": "/dev/dri/renderD130"
+      },
+      "3": {
+        "runtime_device": 3,
+        "expected_pci": "0000:5a:00",
+        "render_node": "/dev/dri/renderD131"
+      },
+      "4": {
+        "runtime_device": 4,
+        "expected_pci": "0000:87:00",
+        "render_node": "/dev/dri/renderD132"
+      },
+      "5": {
+        "runtime_device": 5,
+        "expected_pci": "0000:ae:00",
+        "render_node": "/dev/dri/renderD133"
+      },
+      "6": {
+        "runtime_device": 6,
+        "expected_pci": "0000:c2:00",
+        "render_node": "/dev/dri/renderD134"
+      },
+      "7": {
+        "runtime_device": 7,
+        "expected_pci": "0000:d7:00",
+        "render_node": "/dev/dri/renderD135"
+      }
+    },
+    "image_qualification": "required_before_live_admission",
+    "control_device_node": "/dev/mxcd"
+  }
 }
