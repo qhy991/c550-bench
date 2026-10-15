@@ -1,4 +1,3 @@
-"""Temporary SDK path fixtures for software namespace checks."""
 from pathlib import Path
 
 

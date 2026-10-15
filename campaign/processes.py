@@ -43,6 +43,17 @@ def runtime_paths(protocol: dict, *, author=False):
     return tuple(dict.fromkeys(paths))
 
 
+def _runtime_mounts(protocol: dict, *, author=False) -> list[str]:
+    maca = maca_runtime_paths(protocol)
+    command = []
+    for name in runtime_paths(protocol, author=author):
+        if Path(name) == maca.alias and maca.alias != maca.root:
+            command += ['--symlink', str(maca.root), name]
+        elif Path(name).exists():
+            command += ['--ro-bind', name, name]
+    return command
+
+
 def admit_private_paths(paths, protocol: dict, source: Path) -> None:
     """Admit layouts against every dependency exposed to an untrusted role."""
     private = [Path(path).resolve() for path in paths]
@@ -159,10 +170,7 @@ def sandbox(root: Path, source: Path, *, writable: list[Path], extra_readonly=()
                '--unshare-pid', '--unshare-ipc', '--unshare-uts', '--cap-drop', 'ALL',
                '--proc', '/proc', '--dev', '/dev', '--tmpfs', '/tmp',
                '--tmpfs', '/home', '--dir', '/home/author']
-    for name in runtime_paths(protocol, author=author):
-        path = Path(name)
-        if path.exists():
-            command += ['--ro-bind', name, name]
+    command += _runtime_mounts(protocol, author=author)
     if author:
         roots = (source, root)
     else:
@@ -220,9 +228,7 @@ def candidate_sandbox(root: Path, source: Path, bundle: Path, protocol: dict) ->
                '--unshare-pid', '--unshare-ipc', '--unshare-uts', '--unshare-net',
                '--cap-drop', 'ALL', '--proc', '/proc', '--dev', '/dev',
                '--tmpfs', '/tmp', '--tmpfs', '/home', '--dir', '/home/author']
-    for name in runtime_paths(protocol):
-        if Path(name).exists():
-            command += ['--ro-bind', name, name]
+    command += _runtime_mounts(protocol)
     for name in ('worker.py', 'wire.py'):
         command += ['--ro-bind', str(source / 'campaign' / name), '/worker/' + name]
     command += ['--ro-bind', str(bundle), '/bundle',

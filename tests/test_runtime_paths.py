@@ -1,4 +1,3 @@
-"""SDK root exposure and preflight refusal without device access."""
 import copy
 import errno
 import json
@@ -52,7 +51,7 @@ class RuntimePathsTests(unittest.TestCase):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(value))
 
-    def test_both_sandbox_builders_mount_canonical_root_before_alias_readonly(self):
+    def test_both_sandbox_builders_bind_canonical_root_before_alias_symlink(self):
         paths = runtime_paths(self.protocol)
         self.assertEqual(paths[-2:], (str(self.maca.root), str(self.maca.alias)))
         self.assertNotIn(str(self.base), paths)
@@ -64,12 +63,27 @@ class RuntimePathsTests(unittest.TestCase):
             mounted = [command[i + 1:i + 3] for i, arg in enumerate(command) if arg == '--ro-bind']
             root = [str(self.maca.root)] * 2
             alias = [str(self.maca.alias)] * 2
-            self.assertLess(mounted.index(root), mounted.index(alias))
+            link = ['--symlink', str(self.maca.root), str(self.maca.alias)]
+            self.assertIn(root, mounted)
+            self.assertNotIn(alias, mounted)
+            index = command.index('--symlink')
+            self.assertEqual(command[index:index + 3], link)
+            self.assertLess(command.index(str(self.maca.root)), index)
             self.assertNotIn([str(self.base)] * 2, mounted)
+
+    def test_direct_sdk_install_uses_one_readonly_bind_without_alias_symlink(self):
         protocol = copy.deepcopy(self.protocol)
         for key in ('runtime_library', 'activity_library'):
             protocol['deployment'][key] = str(self.maca.root / Path(protocol['deployment'][key]).relative_to(self.maca.alias))
         self.assertEqual(runtime_paths(protocol).count(str(self.maca.root)), 1)
+        commands = [sandbox(self.root, SOURCE, writable=[], protocol=protocol, author=author)
+                    for author in (False, True)]
+        commands.append(candidate_sandbox(self.root, SOURCE, self.base / 'bundle', protocol))
+        for command in commands:
+            mounted = [command[i + 1:i + 3] for i, arg in enumerate(command) if arg == '--ro-bind']
+            self.assertEqual(mounted.count([str(self.maca.root)] * 2), 1)
+            self.assertNotIn('--symlink', command)
+            self.assertNotIn(str(self.maca.alias), command)
 
     def test_private_paths_under_alias_or_canonical_sdk_are_refused(self):
         for parent in (self.maca.alias, self.maca.root):
@@ -176,6 +190,36 @@ class RuntimePathsTests(unittest.TestCase):
             with self.assertRaises(PermissionError) as failure:
                 validate_runtime_capture(self.root)
         self.assertEqual(failure.exception.filename, str(path))
+
+    @unittest.skipUnless(sys.platform == 'linux' and shutil.which('bwrap'), 'Linux bubblewrap required')
+    def test_outer_namespace_preserves_alias_resolution_and_generated_candidate_mounts(self):
+        bundle = self.root / 'bundle'
+        bundle.mkdir()
+        code = f'''
+import json
+import sys
+from pathlib import Path
+sys.path.insert(0, {str(SOURCE)!r})
+from campaign.processes import candidate_sandbox, maca_runtime_paths, runtime_paths
+root, source, bundle = Path({str(self.root)!r}), Path({str(SOURCE)!r}), Path({str(bundle)!r})
+protocol = json.loads((root / 'campaign/protocol.json').read_text())
+maca = maca_runtime_paths(protocol)
+expected = Path({str(self.maca.root)!r})
+assert maca.alias.is_symlink(), maca.alias
+assert maca.alias.resolve(strict=True) == maca.root == expected, maca
+assert str(expected) in runtime_paths(protocol)
+command = candidate_sandbox(root, source, bundle, protocol)
+mounts = [command[i + 1:i + 3] for i, arg in enumerate(command) if arg == '--ro-bind']
+assert [str(expected)] * 2 in mounts, command
+assert [str(maca.alias)] * 2 not in mounts, command
+index = command.index('--symlink')
+assert command[index:index + 3] == ['--symlink', str(expected), str(maca.alias)], command
+assert command.index(str(expected)) < index, command
+'''
+        command = sandbox(self.root, SOURCE, writable=[], protocol=self.protocol, author=True)
+        result = subprocess.run([*command, sys.executable, '-I', '-B', '-c', code],
+                                capture_output=True, text=True, timeout=15)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     @unittest.skipUnless(sys.platform == 'linux' and shutil.which('bwrap'), 'Linux bubblewrap required')
     def test_real_candidate_namespace_reads_both_sdk_spellings_readonly_and_hides_private_siblings(self):
