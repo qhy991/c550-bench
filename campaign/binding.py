@@ -123,7 +123,7 @@ def validate_plan(plan: dict, bench_root: Path, data_root: Path) -> dict[str, tu
     for row in allocations:
         key = (row.get("task"), row.get("condition"), row.get("replicate"))
         if (row.get("task") not in tasks or row.get("condition") not in CONDITIONS
-                or type(row.get("replicate")) is not int or row["replicate"] < 1
+                or type(row.get("replicate")) is not int or not 1 <= row["replicate"] <= replicates
                 or not isinstance(row.get("workspace"), str) or not Path(row["workspace"]).is_absolute()
                 or key in seen):
             raise ValueError("invalid or duplicate frozen allocation row")
@@ -205,3 +205,40 @@ def host_config(plan: dict, routing: dict, host: str) -> tuple[dict, list[dict]]
     if not selected:
         raise ValueError("requested host has no frozen allocations")
     return routing["hosts"][host], selected
+
+
+def reconcile_allocation(document: dict) -> dict:
+    """Resolve the complete assignment set from its committed preparation inputs."""
+    anchor = document.get('plan_source')
+    if not isinstance(anchor, dict) or set(anchor) != {'root', 'prepared_commit'}:
+        raise ValueError('allocation requires its committed frozen plan source')
+    root = clean_checkout(Path(anchor['root']), anchor['prepared_commit'])
+    plan = json.loads(git(root, 'show', anchor['prepared_commit'] + ':campaign/frozen-plan.json'))
+    routing = json.loads(git(root, 'show', anchor['prepared_commit'] + ':campaign/frozen-routing.json'))
+    expected_keys = {(task, condition, replicate) for task in plan['task_ids']
+                     for condition in CONDITIONS for replicate in range(1, plan['replicates'] + 1)}
+    keys = [(row['task'], row['condition'], row['replicate']) for row in plan['allocations']]
+    if len(keys) != len(expected_keys) or set(keys) != expected_keys:
+        raise ValueError('frozen plan omits or duplicates task, condition or replicate')
+    config, selected = host_config(plan, routing, document['host'])
+    expected = {Path(row['workspace']).name: row for row in selected}
+    actual = {row['assignment_id']: row for row in document.get('runs', [])}
+    if (len(actual) != len(document.get('runs', [])) or set(actual) != set(expected)):
+        raise ValueError('allocation differs from frozen assignments: missing=' +
+                         str(sorted(set(expected) - set(actual))) +
+                         ', foreign=' + str(sorted(set(actual) - set(expected))))
+    if document['start_window_seconds'] != config['start_window_seconds']:
+        raise ValueError('allocation start window differs from frozen routing')
+    devices = {row['id']: row for row in config['devices']}
+    for identity, assignment in expected.items():
+        route = devices[assignment['device_id']]
+        fields = {key: assignment[key] for key in ('task', 'condition', 'replicate', 'root', 'host', 'device_id')}
+        fields.update(frozen_workspace=assignment['workspace'],
+                      physical_device=route['physical_device'], author_capacity=route['author_capacity'],
+                      bench_commit=plan['bindings']['bench']['commit'],
+                      compiler_commit=plan['bindings'][assignment['condition']]['commit'],
+                      author=plan['author'], measurement_protocol=plan['measurement_protocol'],
+                      baseline=plan['baseline_files'][assignment['task']])
+        if any(actual[identity].get(key) != value for key, value in fields.items()):
+            raise ValueError('allocation assignment differs from frozen plan/routing: ' + identity)
+    return plan

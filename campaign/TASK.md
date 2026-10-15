@@ -15,7 +15,31 @@ correctness assay, qualified event timing, profiling, fixed nomination, confirma
 device release. An author does not certify a win, extend the clock, replace a failed
 nominee or restart a claimed Run. Token use is accounting only.
 
-Live execution is currently refused. A later reviewed adapter must call Compiler catalog
-intake, include `author_context(root)` in every actual prompt, expose only the selected
-Compiler's inspect/transform/verify actions, and preserve stage origins. Correctness,
-performance, profiler coverage, release and independent attribution remain separate.
+Live intake is refused until the source-bound protocol is qualified. The supervisor
+checks the frozen Compiler catalog and includes `author_context(root)` in the actual
+prompt. Correctness, performance, profiler coverage, release and independent
+attribution remain separate.
+
+Write each complete callable in `campaign/candidates/<candidate-id>/candidate.py`.
+It must export `run(*inputs)` with the original return-value ABI. Python and JSON
+helper files may live in that same directory. Use a new candidate id for every source
+revision. The controller snapshots the complete directory on its first search request.
+
+Submit one search request and then profile that same snapshot:
+
+```bash
+python3 -m campaign submit --id search-one --candidate one --phase search
+python3 -m campaign submit --id profile-one --candidate one --phase profile
+```
+
+The response names the retained result. A timeout or unknown response consumes that
+request. Do not resubmit it, replace its candidate directory, or claim confirmation.
+Profile reads the controller's saved snapshot even if your writable files change.
+The controller chooses one eligible nominee and performs one final confirmation under
+the original total deadline. A failed confirmation has no replacement.
+
+Use `python3 campaign/hmz_compiler_tools.py catalog`, `inspect`, `transform`, and
+`verify` for the selected Compiler. The prepared catalog and `author_context(root)`
+are included in this author session. Keep journals and scratch files in your private
+home or own candidate directories. The original task material, Bench and Compiler are
+read-only. You have no direct GPU device access. All device work uses the request API.
