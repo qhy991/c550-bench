@@ -73,12 +73,19 @@ complete `run(*inputs)` ABI.
 Only the trusted assay imports the oracle and publishes correctness and result files.
 The worker mounts its sealed bundle, two transport files, the selected immutable Compiler
 and runtime dependencies. Layout admission refuses private workspace or evidence paths
-below those runtime mounts. It cannot see the prepared author workspace, raw oracle,
+below any runtime mount exposed to either role, including HMZ and provider dependencies.
+The author no longer mounts all of `/opt`. Private roots cannot contain one another
+or sit below the exposed Bench source. The worker cannot see the prepared author workspace, raw oracle,
 trusted request, result directory or other processes. Standard input and output carry
 bounded JSON metadata and tensor bytes. The decoder admits fixed dtypes and value kinds,
 checks lengths before allocation, and never loads pickle or shared tensor storage.
-Candidate output shapes and dtypes remain subject to the original comparator. A worker
-exit or malformed response consumes the request and closes search as unknown.
+Trusted inputs retain their values, shape, strides and storage offset. Untrusted output
+frames admit only bounded contiguous values, then the original comparator checks shape
+and dtype. A worker
+exit or malformed response consumes the request and closes search as unknown. After the
+last value, the trusted caller closes input and requires the worker to exit with code zero
+within the original execution cutoff. A final valid value followed by a failed exit
+cannot complete the assay.
 
 Before allocation, the assay checks Python and package versions against the selected
 Compiler's `runtime/hosts/xcore1002.json`. It uses that capture's build environment.

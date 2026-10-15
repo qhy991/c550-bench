@@ -19,6 +19,7 @@ class CandidateSession:
         self.stop, self.hard_stop = stop, hard_stop
         self.maximum = maximum_output_bytes + HEADER_LIMIT + 4
         self.device = device
+        self.directory = directory
         self.failure = None
         if time.time() >= stop or stop > hard_stop:
             raise TimeoutError('candidate has no execution time remaining')
@@ -37,14 +38,26 @@ class CandidateSession:
     def __enter__(self):
         return self
 
-    def __exit__(self, *_):
+    def __exit__(self, exception_type, *_):
         try:
-            terminate_group(self.process, stop=self.hard_stop)
+            if exception_type is None and self.failure is None:
+                self.process.stdin.close()
+                code = self.process.wait(timeout=max(0, self.stop - time.time()))
+                publish_new(self.directory / 'worker-exit.json', {
+                    'returncode': code, 'observed_at_epoch': time.time()})
+                if code != 0:
+                    self.failure = f'candidate exited {code} after returning values'
+                    raise RuntimeError(self.failure + '; outcome unknown, no retry')
         finally:
-            self.guard.close(self.hard_stop)
-            self.process.stdin.close()
-            self.process.stdout.close()
-            self.log.close()
+            try:
+                terminate_group(self.process, stop=self.hard_stop)
+            finally:
+                try:
+                    self.guard.close(self.hard_stop)
+                finally:
+                    self.process.stdin.close()
+                    self.process.stdout.close()
+                    self.log.close()
 
     def __call__(self, *inputs):
         try:
@@ -54,7 +67,7 @@ class CandidateSession:
             raise
 
     def exchange(self, inputs):
-        outgoing = memoryview(encode(list(inputs)))
+        outgoing = memoryview(encode(list(inputs), preserve_strides=True))
         received = bytearray()
         expected = None
         with selectors.DefaultSelector() as selector:

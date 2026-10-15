@@ -10,7 +10,7 @@ DTYPES = ('bool', 'uint8', 'int8', 'int16', 'int32', 'int64',
           'float16', 'bfloat16', 'float32', 'float64')
 
 
-def encode(value) -> bytes:
+def encode(value, *, preserve_strides=False) -> bytes:
     import torch
     buffers = []
 
@@ -19,8 +19,17 @@ def encode(value) -> bytes:
             name = str(item.dtype).removeprefix('torch.')
             if name not in DTYPES or item.layout != torch.strided:
                 raise ValueError('wire accepts only dense tensors with admitted dtypes')
-            data = item.detach().cpu().contiguous().reshape(-1).view(torch.uint8).numpy().tobytes()
+            if preserve_strides:
+                span = 0 if not item.numel() else 1 + sum((size - 1) * stride
+                                                         for size, stride in zip(item.shape, item.stride()))
+                elements = item.storage_offset() + span if span else 0
+                values = item.as_strided((elements,), (1,), storage_offset=0)
+            else:
+                values = item
+            data = values.detach().cpu().contiguous().reshape(-1).view(torch.uint8).numpy().tobytes()
             buffers.append(data)
+            if preserve_strides:
+                return ['view', name, list(item.shape), list(item.stride()), item.storage_offset(), len(data)]
             return ['tensor', name, list(item.shape), list(item.stride()), len(data)]
         if item is None or type(item) in (bool, int, float, str):
             return ['scalar', item]
@@ -52,31 +61,34 @@ def decode(payload: bytes, *, device: str, preserve_strides: bool = False):
         if depth > 32 or not isinstance(node, list) or not node:
             raise ValueError('invalid wire tree')
         kind = node[0]
-        if kind == 'tensor' and len(node) == 5:
-            _, name, shape, strides, length = node
+        if ((kind == 'tensor' and len(node) == 5)
+                or (kind == 'view' and len(node) == 6 and preserve_strides)):
+            _, name, shape, strides, *tail = node
+            offset, length = tail if kind == 'view' else (0, tail[0])
             if (name not in DTYPES or not isinstance(shape, list) or len(shape) > 32
                     or any(type(x) is not int or x < 0 for x in shape)
                     or not isinstance(strides, list) or len(strides) != len(shape)
                     or any(type(x) is not int or x < 0 for x in strides)
-                    or type(length) is not int or length < 0):
+                    or type(length) is not int or length < 0
+                    or type(offset) is not int or offset < 0):
                 raise ValueError('invalid wire tensor')
             dtype = getattr(torch, name)
-            required = math.prod(shape) * torch.empty((), dtype=dtype).element_size()
+            elements = math.prod(shape)
+            if kind == 'view':
+                elements = (offset + 1 + sum((size - 1) * stride for size, stride in zip(shape, strides))
+                            if elements else 0)
+            required = elements * torch.empty((), dtype=dtype).element_size()
             if length != required or length > len(payload) - position:
                 raise ValueError('wire tensor length differs')
             if length:
-                value = torch.frombuffer(bytearray(payload[position:position + length]), dtype=dtype).reshape(shape)
+                value = torch.frombuffer(bytearray(payload[position:position + length]), dtype=dtype)
             else:
-                value = torch.empty(shape, dtype=dtype)
+                value = torch.empty(0, dtype=dtype)
             position += length
             value = value.to(device)
-            # Only trusted inputs retain strides. Candidate output metadata cannot
-            # cause an allocation larger than its bounded contiguous bytes.
-            if preserve_strides:
-                result = torch.empty_strided(shape, strides, dtype=dtype, device=device)
-                result.copy_(value)
-                return result
-            return value
+            # Only trusted inputs admit storage views. Candidate output metadata
+            # cannot allocate beyond its bounded contiguous value bytes.
+            return value.as_strided(shape, strides, offset) if kind == 'view' else value.reshape(shape)
         if kind == 'scalar' and len(node) == 2 and (
                 node[1] is None or type(node[1]) in (bool, int, float, str)):
             return node[1]

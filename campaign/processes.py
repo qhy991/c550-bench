@@ -16,13 +16,25 @@ from .owner import publish_new
 RUNTIME_READONLY = ('/usr', '/bin', '/lib', '/lib64', '/opt/conda', '/opt/maca', '/etc/ld.so.cache')
 
 
-def admit_private_paths(paths) -> None:
-    """Private workspaces and evidence cannot be below a worker runtime mount."""
-    for name in RUNTIME_READONLY:
+def runtime_paths(protocol: dict, *, author=False):
+    paths = list(RUNTIME_READONLY)
+    if author:
+        paths.extend(('/etc/resolv.conf', '/etc/hosts', '/etc/ssl'))
+        paths.extend(protocol['deployment'][name] for name in ('hmz_root', 'hmz_python_root', 'provider_native'))
+    return tuple(dict.fromkeys(paths))
+
+
+def admit_private_paths(paths, protocol: dict, source: Path) -> None:
+    """Admit layouts against every dependency exposed to an untrusted role."""
+    private = [Path(path).resolve() for path in paths]
+    for index, path in enumerate(private):
+        if any(path.is_relative_to(other) or other.is_relative_to(path) for other in private[:index]):
+            raise ValueError('private campaign paths overlap: ' + str(path))
+    for name in (*runtime_paths(protocol, author=True), source):
         runtime = Path(name).resolve()
-        for path in paths:
-            if Path(path).resolve().is_relative_to(runtime):
-                raise ValueError('private campaign path overlaps worker runtime mount: ' + str(path))
+        for path in private:
+            if path.is_relative_to(runtime):
+                raise ValueError('private campaign path overlaps untrusted runtime mount: ' + str(path))
 
 
 @dataclass(frozen=True)
@@ -106,13 +118,10 @@ def sandbox(root: Path, source: Path, *, writable: list[Path], extra_readonly=()
                '--unshare-pid', '--unshare-ipc', '--unshare-uts', '--cap-drop', 'ALL',
                '--proc', '/proc', '--dev', '/dev', '--tmpfs', '/tmp',
                '--tmpfs', '/home', '--dir', '/home/author']
-    for name in ('/usr', '/bin', '/lib', '/lib64', '/opt'):
+    for name in runtime_paths(protocol, author=author):
         path = Path(name)
         if path.exists():
             command += ['--ro-bind', name, name]
-    for path in (Path('/etc/ld.so.cache'), Path('/etc/resolv.conf'), Path('/etc/hosts'), Path('/etc/ssl')):
-        if path.exists():
-            command += ['--ro-bind', str(path), str(path)]
     if author:
         roots = (source, root)
     else:
@@ -137,10 +146,6 @@ def sandbox(root: Path, source: Path, *, writable: list[Path], extra_readonly=()
             if not Path(path).is_file() or Path(path).is_symlink():
                 raise ValueError('canonical MACA locks must be mounted from the host before intake')
             command += ['--bind', path, path]
-    else:
-        for name in ('hmz_root', 'hmz_python_root', 'provider_native'):
-            path = deployment[name]
-            command += ['--ro-bind', path, path]
     return [*command, '--chdir', str(root)]
 
 
@@ -151,7 +156,7 @@ def candidate_sandbox(root: Path, source: Path, bundle: Path, protocol: dict) ->
                '--unshare-pid', '--unshare-ipc', '--unshare-uts', '--unshare-net',
                '--cap-drop', 'ALL', '--proc', '/proc', '--dev', '/dev',
                '--tmpfs', '/tmp', '--tmpfs', '/home', '--dir', '/home/author']
-    for name in RUNTIME_READONLY:
+    for name in runtime_paths(protocol):
         if Path(name).exists():
             command += ['--ro-bind', name, name]
     for name in ('worker.py', 'wire.py'):

@@ -24,7 +24,7 @@ def admit_live(allocation: Path, state: Path) -> dict:
     if sys.platform != 'linux' or not os.statvfs(SOURCE).f_flag & os.ST_RDONLY:
         raise PermissionError('live Bench source requires a Linux read-only deployment')
     document = read_object(allocation)
-    admit_private_paths([state, *(run['root'] for run in document.get('runs', []))])
+    admit_private_paths([state, *(run['root'] for run in document.get('runs', []))], protocol, SOURCE)
     reconcile_allocation(document)
     if document.get('host') != 'c550-2':
         raise ValueError('this deployment admits only the separately qualified c550-2 host')

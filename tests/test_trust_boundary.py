@@ -19,7 +19,7 @@ from sol_execbench.core.data import Definition, ToleranceSpec
 
 from campaign.binding import reconcile_allocation
 from campaign.isolated import CandidateSession
-from campaign.processes import ProcessIdentity, admit_private_paths, candidate_sandbox, run_bounded
+from campaign.processes import ProcessIdentity, admit_private_paths, candidate_sandbox, sandbox, run_bounded
 from campaign.wire import decode, encode
 
 SOURCE = Path(__file__).resolve().parents[1]
@@ -45,10 +45,20 @@ def child(root, source):
 
 class IsolationTests(unittest.TestCase):
     def test_layout_refuses_runtime_ancestor_of_live_author_or_evidence(self):
-        for path in (Path('/usr/live-author'), Path('/opt/conda/owner-state')):
-            with self.subTest(path=path), self.assertRaisesRegex(ValueError, 'overlaps worker runtime'):
-                admit_private_paths([Path('/work/ordinary-campaign'), path])
-        admit_private_paths([Path('/work/ordinary-campaign'), Path('/root/owner-state')])
+        protocol = {'deployment': {'bubblewrap': '/usr/bin/bwrap',
+                                   'hmz_root': '/work/hmz', 'hmz_python_root': '/work/python312',
+                                   'provider_native': '/provider-native'}}
+        for path in (Path('/usr/live-author'), Path('/opt/conda/owner-state'),
+                     Path('/work/hmz/owner-state'), SOURCE / 'nested-assignment'):
+            with self.subTest(path=path), self.assertRaisesRegex(ValueError, 'overlaps untrusted runtime'):
+                admit_private_paths([Path('/work/ordinary-campaign'), path], protocol, SOURCE)
+        admit_private_paths([Path('/opt/campaign-a'), Path('/opt/campaign-b'), Path('/opt/owner-state')],
+                            protocol, SOURCE)
+        command = sandbox(Path('/opt/campaign-a'), SOURCE, writable=[], protocol=protocol, author=True)
+        mounted = [command[index + 1] for index, word in enumerate(command) if word == '--ro-bind']
+        self.assertNotIn('/opt', mounted)
+        with self.assertRaisesRegex(ValueError, 'private campaign paths overlap'):
+            admit_private_paths([Path('/work/one'), Path('/work/one/campaign/candidates/two')], protocol, SOURCE)
 
     def test_wrong_output_cannot_patch_trusted_comparison_or_measurement(self):
         definition = Definition.model_validate({
@@ -84,7 +94,24 @@ os._exit(0)
                 with self.assertRaises((RuntimeError, BrokenPipeError)):
                     run(torch.ones(4))
                 self.assertIsNotNone(run.failure)
+                # The attack under test exits successfully. Observe that actual
+                # exit before exercising cleanup on this CPU development host.
+                self.assertEqual(run.process.wait(timeout=2), 0)
             self.assertFalse((root / 'worker-evidence/result.json').exists())
+
+    def test_complete_value_followed_by_failed_exit_cannot_complete_assay(self):
+        source = '''import os
+from wire import encode
+def run(x):
+    os.write(1, encode(x))
+    os._exit(7)
+'''
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with self.assertRaisesRegex(RuntimeError, 'exited 7.*outcome unknown'):
+                with child(root, source) as run:
+                    self.assertTrue(torch.equal(run(torch.ones(4)), torch.ones(4)))
+            self.assertEqual(json.loads((root / 'worker-evidence/worker-exit.json').read_text())['returncode'], 7)
 
     def test_complete_stateful_callable_retains_ten_fresh_rounds_per_uuid(self):
         source = '''previous = None
@@ -118,7 +145,7 @@ def run(x):
                 result = c550bench.check_problem(task, device='cpu', candidate_path=root / 'bundle/candidate.py',
                     symbol='run', reference_selfcheck=False, workload_scope='all', rounds=10,
                     output=root / 'correctness.json', seed=200, threads=1, candidate_callable=run)
-                self.assertEqual(result['status'], 'passed')
+                self.assertEqual(result['status'], 'passed', result['cases'][-1])
                 self.assertEqual(len(result['cases']), 160)
                 self.assertEqual(len({case['workload_uuid'] for case in result['cases']}), 16)
                 self.assertFalse(result['full_device_correctness'])
@@ -126,11 +153,20 @@ def run(x):
 
     def test_tensor_transport_preserves_input_strides_and_output_types(self):
         inputs = [torch.arange(12, dtype=torch.bfloat16).reshape(3, 4).t(), 7, 0.25, None]
-        frame = encode(inputs)
+        frame = encode(inputs, preserve_strides=True)
         decoded = decode(frame[8:], device='cpu', preserve_strides=True)
         self.assertEqual(decoded[0].stride(), inputs[0].stride())
         self.assertTrue(torch.equal(decoded[0], inputs[0]))
         self.assertEqual(decoded[1:], inputs[1:])
+        for view in (torch.arange(12)[2:10:2], torch.arange(3).expand(2, 3),
+                     torch.arange(6).unfold(0, 3, 1), torch.arange(3)[3:]):
+            frame = encode(view, preserve_strides=True)
+            decoded_view = decode(frame[8:], device='cpu', preserve_strides=True)
+            self.assertTrue(torch.equal(decoded_view, view))
+            self.assertEqual(decoded_view.stride(), view.stride())
+            self.assertEqual(decoded_view.storage_offset(), view.storage_offset())
+            with self.assertRaises(ValueError):
+                decode(frame[8:], device='cpu')
         with self.assertRaises(ValueError):
             decode(b'\x00\x00\x00\x02{}', device='cpu')
 
