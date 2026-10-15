@@ -69,6 +69,7 @@ def compiled_original(original, route: dict, evidence: Path, *, workload_ids: tu
         getattr(config, name)
     accumulated_limit = config.accumulated_recompile_limit
     backend = lookup_backend('inductor')
+    import torch._inductor.config as inductor_config
     graphs = []
     before = dict(counters['graph_break'])
 
@@ -99,6 +100,7 @@ def compiled_original(original, route: dict, evidence: Path, *, workload_ids: tu
             reason: count - before.get(reason, 0) for reason, count in counters['graph_break'].items()
             if count > before.get(reason, 0)}, 'fallback_policy': policy,
             'accumulated_recompile_limit': accumulated_limit,
+            'inductor_compile_threads': inductor_config.compile_threads,
             'uniform_compilation_claim': False,
             'compiled_graphs_are_not_device_dispatch_or_performance_proof': True}
     return run, diagnostics
