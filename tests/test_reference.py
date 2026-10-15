@@ -174,6 +174,30 @@ def cpu_graph_backend():
 
 
 class CompilationTests(unittest.TestCase):
+    def test_file_loaded_original_captures_graph_with_module_global(self):
+        import torch
+        import torch._dynamo
+        name = 'c550bench_test_compiled_original'
+        previous = {name: sys.modules[name]} if name in sys.modules else {}
+        def restore():
+            sys.modules.pop(name, None)
+            sys.modules.update(previous)
+            torch._dynamo.reset()
+        self.addCleanup(restore)
+        torch._dynamo.reset()
+        with tempfile.TemporaryDirectory() as directory, cpu_graph_backend():
+            root = Path(directory)
+            path = root / 'original.py'
+            path.write_text('import torch\nOFFSET = torch.tensor(2.)\ndef run(value):\n    return value + OFFSET\n')
+            original = c550bench.load_module(path, name)
+            route = {'kind': 'inductor', 'capture': 'fullgraph', 'dynamic': False,
+                     'known_eager_regions': []}
+            call, diagnostics = compiled_original(original, route, root)
+            self.assertTrue(torch.equal(call(torch.ones(4)), torch.full((4,), 3.)))
+            self.assertEqual(len(diagnostics()['graphs']), 1)
+            self.assertEqual(diagnostics()['graph_breaks'], {})
+            self.assertTrue((root / 'graph-0000.py').is_file())
+
     def compile(self, root, function, capture='fullgraph'):
         import torch._dynamo
         torch._dynamo.reset()
