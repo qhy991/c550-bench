@@ -228,7 +228,10 @@ def run(x):
                 f'        Path({str(forbidden)!r}).write_text("forged")\n'
                 '    except OSError: return saved(x)\n'
                 '    return x * 0\n')
-            protocol = maca_protocol(root, bubblewrap=shutil.which('bwrap'), assay_python=sys.executable,
+            protocol = json.loads((SOURCE / 'campaign/protocol.json').read_text())
+            if not Path(protocol['deployment']['runtime_library']).is_file():
+                protocol = maca_protocol(root)
+            protocol['deployment'].update(bubblewrap=shutil.which('bwrap'), assay_python=sys.executable,
                 control_device_node='/dev/null', devices={'0': {'render_node': '/dev/null'}})
             command = candidate_sandbox(root, SOURCE, bundle, protocol)
             command[-2] = 'cpu'
