@@ -9,12 +9,14 @@ import platform
 from importlib.metadata import version
 from pathlib import Path
 import statistics
+import stat
 import shutil
 import sys
 import time
 
 from .binding import read_object
 from .owner import publish_new
+from .processes import maca_runtime_paths, runtime_environment
 
 TIMING = read_object(Path(__file__).with_name('protocol.json'))['timing']
 TIMER = TIMING['timer']
@@ -23,6 +25,7 @@ RESET = TIMING['device_state_reset']
 WARMUPS = TIMING['sample_policy']['warmups']
 PAIRS = TIMING['sample_policy']['paired_samples_per_workload']
 MAX_RELATIVE_MAD = TIMING['sample_policy']['maximum_relative_mad']
+MACA_BLAS_FILES = ('lib/libmcblas.so', 'lib/libmcblasLt.so', 'lib/mcblas_xcore1000.mcfb')
 
 
 def paired_summary(rows: list[dict]) -> dict:
@@ -49,6 +52,28 @@ def paired_summary(rows: list[dict]) -> dict:
 
 
 def validate_runtime_capture(root: Path):
+    binding = read_object(root / 'campaign/binding.json')
+    protocol = read_object(root / binding['measurement_protocol'])
+    maca = maca_runtime_paths(protocol)
+    captured_path = runtime_environment(root).get('MACA_PATH')
+    if not isinstance(captured_path, str) or not captured_path:
+        raise ValueError('selected Compiler host capture has no MACA_PATH')
+    captured = Path(captured_path)
+    if not captured.is_absolute() or captured.resolve(strict=True) != maca.root:
+        raise ValueError('MACA SDK root differs from the selected Compiler host capture: ' + str(captured))
+    required = [Path(protocol['deployment'][name]) for name in ('runtime_library', 'activity_library')]
+    required.extend(maca.alias / name for name in MACA_BLAS_FILES)
+    for path in required:
+        resolved = path.resolve(strict=True)
+        if not resolved.is_relative_to(maca.root):
+            raise ValueError('MACA runtime file resolves outside the selected SDK root: ' + str(path))
+        canonical = maca.root / path.relative_to(maca.alias)
+        if canonical.resolve(strict=True) != resolved:
+            raise ValueError('MACA runtime alias and canonical file disagree: ' + str(path))
+        if not stat.S_ISREG(resolved.stat().st_mode):
+            raise ValueError('MACA runtime file must be a regular file: ' + str(path))
+        with path.open('rb') as library:
+            library.read(1)
     host = read_object(root / '.deps/cake-ir/runtime/hosts/xcore1002.json')['host_environment']
     if platform.python_version() != host['python']['version']:
         raise ValueError('assay Python differs from the selected Compiler host capture')
@@ -176,7 +201,7 @@ def evaluate(root: Path, request: dict, output: Path) -> dict:
         for name, shape in definition.get_output_shapes(workload.axes).items())
         for workload in workloads)
     from .isolated import CandidateSession
-    from .processes import candidate_sandbox, runtime_environment
+    from .processes import candidate_sandbox
     candidate = Path(request['snapshot'])
     worker_output = output / 'worker'
     worker_output.mkdir()

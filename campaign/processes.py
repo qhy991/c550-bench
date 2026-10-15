@@ -13,11 +13,30 @@ import time
 from .binding import read_object
 from .owner import publish_new
 
-RUNTIME_READONLY = ('/usr', '/bin', '/lib', '/lib64', '/opt/conda', '/opt/maca', '/etc/ld.so.cache')
+RUNTIME_READONLY = ('/usr', '/bin', '/lib', '/lib64', '/opt/conda', '/etc/ld.so.cache')
+
+
+@dataclass(frozen=True)
+class _MacaRuntimePaths:
+    alias: Path
+    root: Path
+
+
+def maca_runtime_paths(protocol: dict) -> _MacaRuntimePaths:
+    libraries = [Path(protocol['deployment'][name]) for name in ('runtime_library', 'activity_library')]
+    if any(not path.is_absolute() or '..' in path.parts or path.parent.name != 'lib'
+           for path in libraries) or libraries[0].parent != libraries[1].parent:
+        raise ValueError('MACA runtime and activity libraries must share one absolute SDK lib directory')
+    alias = libraries[0].parent.parent
+    root = alias.resolve(strict=True)
+    if not root.is_dir() or alias.parent.resolve(strict=True).is_relative_to(root):
+        raise ValueError('MACA SDK root must be a directory, not the filesystem root or alias parent: ' + str(root))
+    return _MacaRuntimePaths(alias, root)
 
 
 def runtime_paths(protocol: dict, *, author=False):
-    paths = list(RUNTIME_READONLY)
+    maca = maca_runtime_paths(protocol)
+    paths = [*RUNTIME_READONLY, str(maca.root), str(maca.alias)]
     if author:
         paths.extend(('/etc/resolv.conf', '/etc/hosts', '/etc/ssl'))
         paths.extend(protocol['deployment'][name] for name in ('hmz_root', 'hmz_python_root', 'provider_native'))

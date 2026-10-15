@@ -22,6 +22,11 @@ try:
 except ModuleNotFoundError:
     from test_campaign import repository, write
 
+try:
+    from tests.runtime_fixture import maca_protocol
+except ModuleNotFoundError:
+    from runtime_fixture import maca_protocol
+
 SOURCE = Path(__file__).resolve().parents[1]
 
 
@@ -225,8 +230,8 @@ class AuthorMountTests(unittest.TestCase):
             write(root / 'campaign/binding.json', {'baseline': 'chosen.py'})
             write(root / 'campaign/frozen-plan.json', {'baseline_files': {
                 'L1/fixture': 'chosen.py', 'L2/other': 'other-task.py'}})
-            protocol = {'deployment': {'bubblewrap': '/usr/bin/bwrap', 'hmz_root': '/hmz',
-                                       'hmz_python_root': '/hmz-python', 'provider_native': '/provider'}}
+            protocol = maca_protocol(base, bubblewrap='/usr/bin/bwrap', hmz_root='/hmz',
+                hmz_python_root='/hmz-python', provider_native='/provider')
             command = sandbox(root, source, writable=[], protocol=protocol, author=True)
             for tree in (root, source):
                 for name in ('baselines', 'examples', '.git'):
@@ -278,8 +283,8 @@ class AuthorMountTests(unittest.TestCase):
                 f'assert not Path({str(private)!r}).exists()\n' +
                 f'assert Path({str(root / ".data/benchmark/L1/fixture/definition.json")!r}).is_file()\n' +
                 f'assert json.loads(Path({str(root / ".data/benchmark/L1/fixture/definition.json")!r}).read_text()) == {{"spec": "allowed"}}\n')
-            protocol = {'deployment': {'bubblewrap': shutil.which('bwrap'), 'hmz_root': '/absent-hmz',
-                'hmz_python_root': '/absent-python', 'provider_native': '/absent-provider'}}
+            protocol = maca_protocol(base, bubblewrap=shutil.which('bwrap'), hmz_root='/absent-hmz',
+                hmz_python_root='/absent-python', provider_native='/absent-provider')
             command = sandbox(root, source, writable=[], protocol=protocol, author=True)
             result = subprocess.run([*command, sys.executable, '-I', str(script)],
                                     capture_output=True, text=True, timeout=15)

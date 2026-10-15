@@ -12,6 +12,11 @@ from unittest.mock import patch
 from campaign.processes import candidate_sandbox, trusted_attempt_environment
 from campaign.assay import seed_maca_helper
 
+try:
+    from tests.runtime_fixture import maca_protocol
+except ModuleNotFoundError:
+    from runtime_fixture import maca_protocol
+
 SOURCE = Path(__file__).resolve().parents[1]
 
 
@@ -82,8 +87,8 @@ class AttemptCacheTests(unittest.TestCase):
             output.mkdir()
             (root / 'campaign/binding.json').write_text(json.dumps({'physical_device': 0}))
             environment = trusted_attempt_environment({}, output)
-            protocol = {'deployment': {'bubblewrap': '/usr/bin/bwrap', 'assay_python': sys.executable,
-                'control_device_node': '/dev/null', 'devices': {'0': {'render_node': '/dev/null'}}}}
+            protocol = maca_protocol(base, bubblewrap='/usr/bin/bwrap', assay_python=sys.executable,
+                control_device_node='/dev/null', devices={'0': {'render_node': '/dev/null'}})
             command = candidate_sandbox(root, SOURCE, bundle, protocol)
             for variable in ('TRITON_CACHE_DIR', 'TORCHINDUCTOR_CACHE_DIR', 'TORCH_EXTENSIONS_DIR'):
                 self.assertNotIn(environment[variable], command)

@@ -22,6 +22,11 @@ from campaign.isolated import CandidateSession
 from campaign.processes import ProcessIdentity, admit_private_paths, candidate_sandbox, sandbox, run_bounded, trusted_attempt_environment
 from campaign.wire import decode, encode
 
+try:
+    from tests.runtime_fixture import maca_protocol
+except ModuleNotFoundError:
+    from runtime_fixture import maca_protocol
+
 SOURCE = Path(__file__).resolve().parents[1]
 
 
@@ -45,9 +50,10 @@ def child(root, source):
 
 class IsolationTests(unittest.TestCase):
     def test_layout_refuses_runtime_ancestor_of_live_author_or_evidence(self):
-        protocol = {'deployment': {'bubblewrap': '/usr/bin/bwrap',
-                                   'hmz_root': '/work/hmz', 'hmz_python_root': '/work/python312',
-                                   'provider_native': '/provider-native'}}
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        protocol = maca_protocol(Path(temporary.name), bubblewrap='/usr/bin/bwrap',
+            hmz_root='/work/hmz', hmz_python_root='/work/python312', provider_native='/provider-native')
         for path in (Path('/usr/live-author'), Path('/opt/conda/owner-state'),
                      Path('/work/hmz/owner-state'), SOURCE / 'nested-assignment'):
             with self.subTest(path=path), self.assertRaisesRegex(ValueError, 'overlaps untrusted runtime'):
@@ -177,8 +183,8 @@ def run(x):
             root = Path(directory)
             (root / 'campaign').mkdir()
             (root / 'campaign/binding.json').write_text(json.dumps({'physical_device': 0}))
-            protocol = {'deployment': {'bubblewrap': '/usr/bin/bwrap', 'assay_python': '/opt/conda/bin/python',
-                        'control_device_node': '/dev/mxcd', 'devices': {'0': {'render_node': '/dev/dri/renderD128'}}}}
+            protocol = maca_protocol(root, bubblewrap='/usr/bin/bwrap', assay_python='/opt/conda/bin/python',
+                control_device_node='/dev/mxcd', devices={'0': {'render_node': '/dev/dri/renderD128'}})
             command = candidate_sandbox(root, SOURCE, root / 'saved', protocol)
             mounted = [command[i + 1] for i, arg in enumerate(command) if arg in ('--ro-bind', '--bind')]
             self.assertNotIn(str(root), mounted)
@@ -222,8 +228,8 @@ def run(x):
                 f'        Path({str(forbidden)!r}).write_text("forged")\n'
                 '    except OSError: return saved(x)\n'
                 '    return x * 0\n')
-            protocol = {'deployment': {'bubblewrap': shutil.which('bwrap'), 'assay_python': sys.executable,
-                        'control_device_node': '/dev/null', 'devices': {'0': {'render_node': '/dev/null'}}}}
+            protocol = maca_protocol(root, bubblewrap=shutil.which('bwrap'), assay_python=sys.executable,
+                control_device_node='/dev/null', devices={'0': {'render_node': '/dev/null'}})
             command = candidate_sandbox(root, SOURCE, bundle, protocol)
             command[-2] = 'cpu'
             with CandidateSession(command, environment=dict(os.environ), directory=evidence,

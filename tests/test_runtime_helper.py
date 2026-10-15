@@ -68,8 +68,12 @@ class InstalledSdkHelperTests(unittest.TestCase):
         self.assertFalse(torch.cuda.is_initialized())
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            write(root / '.deps/cake-ir/runtime/hosts/xcore1002.json', {'host_environment': {
-                'python': {'version': platform.python_version()}, 'packages': {'triton': version('triton')}}})
+            write(root / 'campaign/binding.json', {'measurement_protocol': 'campaign/protocol.json'})
+            write(root / 'campaign/protocol.json', json.loads((SOURCE / 'campaign/protocol.json').read_text()))
+            write(root / '.deps/cake-ir/runtime/hosts/xcore1002.json', {'target': 'xcore1002',
+                'host_environment': {'kind': 'maca', 'runtime': {
+                    'build_environment': {'MACA_PATH': os.environ['MACA_PATH']}},
+                    'python': {'version': platform.python_version()}, 'packages': {'triton': version('triton')}}})
             with patch('tempfile.tempdir', '/tmp'), patch(
                     'triton.runtime.build.subprocess.check_call', wraps=subprocess.check_call) as compiler:
                 prepared = prepare_maca_helper(root, root / 'runtime-helper')
