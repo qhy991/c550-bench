@@ -18,7 +18,7 @@ GENERATED = (
     "campaign/candidates/", "campaign/schedules/", "campaign/compiler-actions/",
     "campaign/evaluations/", "campaign/final-confirmation/", "campaign/management/",
     "campaign/deadline.json", "campaign/intake.json", "campaign/ENDPOINT.json",
-    "campaign/DONE.json", "campaign/JOURNAL.md",
+    "campaign/DONE.json", "campaign/JOURNAL.md", "campaign/requests/", "campaign/responses/",
 )
 
 
@@ -95,6 +95,8 @@ def prepare(plan_path: Path, routing_path: Path, host: str, output: Path) -> dic
     bench_root, data_root, compiler_roots, adapter_path, adapter_commit = _host_inputs(plan, config)
     workload_ids = validate_plan(plan, bench_root, data_root)
     identity = source_identity(bench_root)
+    upstream_commit = read_object(bench_root / "sources.lock.json")["sol_execbench"]["revision"]
+    upstream_root = clean_checkout(bench_root / ".deps/sol-execbench", upstream_commit)
     devices = {row["id"]: row for row in config["devices"]}
     assignment_ids = [Path(row["workspace"]).name for row in selected]
     if (len(set(assignment_ids)) != len(assignment_ids)
@@ -111,10 +113,13 @@ def prepare(plan_path: Path, routing_path: Path, host: str, output: Path) -> dic
         for key, value in identity.items():
             subprocess.run(["git", "-C", str(run), "config", "--local", key, value], check=True)
         (run / ".deps").mkdir()
+        clone(upstream_root, run / ".deps/sol-execbench", upstream_commit)
+        task_material = run / ".data/benchmark" / assignment["task"]
+        shutil.copytree(data_root / "benchmark" / assignment["task"], task_material)
         compiler_commit = plan["bindings"][assignment["condition"]]["commit"]
         clone(compiler_roots[assignment["condition"]], run / ".deps/cake-ir", compiler_commit)
         for name in ("candidates", "schedules", "compiler-actions", "evaluations",
-                     "final-confirmation", "management"):
+                     "final-confirmation", "management", "requests", "responses"):
             (run / "campaign" / name).mkdir(parents=True, exist_ok=True)
         shutil.copyfile(adapter_path, run / "campaign/hmz_compiler_tools.py")
         author = dict(plan["author"])
@@ -144,8 +149,9 @@ def prepare(plan_path: Path, routing_path: Path, host: str, output: Path) -> dic
         write_new(run / "campaign/frozen-routing.json", routing)
         write_new(run / "campaign/binding.json", binding)
         write_new(run / "campaign/data-binding.json", {
-            "root": str(data_root),
-            "task_root": str(data_root / "benchmark" / assignment["task"]),
+            "root": str(run / ".data"),
+            "task_root": str(task_material),
+            "source_root": str(data_root),
             "mounted_read_only_for_live_evaluation": True,
         })
         write_new(run / "campaign/task-workloads.json", {
@@ -184,6 +190,7 @@ def prepare(plan_path: Path, routing_path: Path, host: str, output: Path) -> dic
         "kind": "c550_bench_host_allocation",
         "host": host,
         "start_window_seconds": config["start_window_seconds"],
+        "plan_source": {key: records[0][key] for key in ("root", "prepared_commit")},
         "runs": records,
         "scope": "prepared without provider or GPU; live MetaX adapter not qualified",
     }

@@ -42,9 +42,13 @@ class PreparationTests(unittest.TestCase):
         base = Path(directory).resolve()
         suite = json.loads((ROOT / "suite.json").read_text())
         baselines = {}
+        upstream_root = base / "upstream"
+        upstream_commit = repository(upstream_root, {"src/sol_execbench/core/__init__.py": ""})
+        sources = json.loads((ROOT / "sources.lock.json").read_text())
+        sources["sol_execbench"]["revision"] = upstream_commit
         bench_files = {
             "suite.json": json.dumps(suite),
-            "sources.lock.json": (ROOT / "sources.lock.json").read_text(),
+            "sources.lock.json": json.dumps(sources),
             "campaign/protocol.json": json.dumps({"timer": "qualification_required"}),
             "campaign/TASK.md": "# Fixture whole-task author scaffold\n",
             ".gitignore": ".deps/\n.data/\n",
@@ -62,12 +66,14 @@ class PreparationTests(unittest.TestCase):
             rows += [{"uuid": f"{task_index:02d}-workload-{index:02d}"} for index in range(1, 16)]
             (task_root / "workload.jsonl").write_text("".join(json.dumps(row) + "\n" for row in rows))
         write(data / "materialization-suite-v2.json", {
-            "sources": json.loads((ROOT / "sources.lock.json").read_text()),
+            "sources": sources,
             "tasks": [{"task": task["id"], "workloads": 16} for task in suite["tasks"]],
             "raw_dataset_in_git": False,
         })
         bench = base / "bench"
         bench_commit = repository(bench, bench_files)
+        (bench / ".deps").mkdir()
+        subprocess.run(["git", "clone", "-q", str(upstream_root), str(bench / ".deps/sol-execbench")], check=True)
         compilers = {}
         compiler_commits = {}
         for condition in ("control", "successor"):
@@ -222,19 +228,46 @@ class SequenceClock:
 
 class OwnerTests(unittest.TestCase):
     def allocation(self, root):
+        rows = [('a', 'task-one', 'control', 'device-0'),
+                ('b', 'task-one', 'successor', 'device-0'),
+                ('c', 'task-two', 'control', 'device-1'),
+                ('d', 'task-two', 'successor', 'device-1')]
+        author = {"wall_time_seconds": 100, "confirmation_seconds": 20}
+        plan = {'task_ids': ['task-one', 'task-two'], 'replicates': 1,
+                'author': author, 'measurement_protocol': 'campaign/protocol.json',
+                'baseline_files': {'task-one': 'baseline.py', 'task-two': 'baseline.py'},
+                'bindings': {name: {'commit': name} for name in ('bench', 'control', 'successor')},
+                'allocations': [{'task': task, 'condition': condition, 'replicate': 1,
+                                 'workspace': str(root / 'intent' / identity)}
+                                for identity, task, condition, _ in rows]}
+        routing = {'schema_version': 1, 'kind': 'c550_bench_routing',
+                   'hosts': {'c550-a': {'start_window_seconds': 1000, 'devices': [
+                       {'id': 'device-' + str(i), 'physical_device': i, 'author_capacity': 1}
+                       for i in range(2)]}},
+                   'assignments': [{'workspace': str(root / 'intent' / identity),
+                                    'root': str((root / ('run-' + identity)).resolve()),
+                                    'host': 'c550-a', 'device_id': device}
+                                   for identity, _, _, device in rows]}
         runs = []
-        for identity, device in (("a", "device-0"), ("b", "device-0"), ("c", "device-1")):
+        for identity, task, condition, device in rows:
             run_root = root / f"run-{identity}"
-            binding = {"assignment_id": identity, "task": "L1/fixture", "condition": "control",
+            binding = {"assignment_id": identity, "task": task, "condition": condition,
                        "replicate": 1, "device_id": device, "author_capacity": 1,
+                       "physical_device": int(device[-1]), 'host': 'c550-a',
+                       'frozen_workspace': str(root / 'intent' / identity),
+                       'bench_commit': 'bench', 'compiler_commit': condition,
+                       'measurement_protocol': 'campaign/protocol.json', 'baseline': 'baseline.py',
                        "root": str(run_root.resolve()),
                        "workload_ids": [f"{identity}-workload-{index:02d}" for index in range(16)],
-                       "author": {"wall_time_seconds": 100, "confirmation_seconds": 20}}
-            commit = repository(run_root, {"campaign/binding.json": json.dumps(binding)})
+                       "author": author}
+            commit = repository(run_root, {"campaign/binding.json": json.dumps(binding),
+                         'campaign/frozen-plan.json': json.dumps(plan),
+                         'campaign/frozen-routing.json': json.dumps(routing)})
             runs.append({**binding, "prepared_commit": commit})
         path = root / "allocation.json"
         write(path, {"schema_version": 1, "kind": "c550_bench_host_allocation",
-                     "host": "c550-a", "start_window_seconds": 1000, "runs": runs})
+                     "host": "c550-a", "start_window_seconds": 1000, "runs": runs,
+                     'plan_source': {key: runs[0][key] for key in ('root', 'prepared_commit')}})
         return path
 
     def test_unverified_release_blocks_same_device_and_preserves_denominator(self):
@@ -244,9 +277,9 @@ class OwnerTests(unittest.TestCase):
             state = root / "state"
             launcher = FakeLauncher(state)
             result = CampaignOwner(allocation, state, sleeper=lambda _: None).run(launcher, FakeRelease())
-            self.assertEqual(set(launcher.started), {"a", "c"})
+            self.assertEqual(set(launcher.started), {"a", "c", "d"})
             self.assertNotIn("b", launcher.started)
-            self.assertEqual(result["assigned"], 3)
+            self.assertEqual(result["assigned"], 4)
             rows = {row["assignment_id"]: row for row in result["rows"]}
             self.assertEqual(rows["a"]["release"]["status"], "unverified")
             self.assertEqual(rows["b"]["execution"]["status"], "unstarted_release_blocked")
@@ -287,7 +320,7 @@ class OwnerTests(unittest.TestCase):
             state = root / "state"
             launcher = FailingLauncher(state)
             result = CampaignOwner(allocation, state, sleeper=lambda _: None).run(launcher, FakeRelease())
-            self.assertEqual(set(launcher.started), {"a", "c"})
+            self.assertEqual(set(launcher.started), {"a", "c", "d"})
             rows = {row["assignment_id"]: row for row in result["rows"]}
             self.assertEqual(rows["a"]["execution"]["status"], "unknown")
             self.assertEqual(rows["b"]["execution"]["status"], "unstarted_release_blocked")
@@ -301,7 +334,7 @@ class OwnerTests(unittest.TestCase):
             clock = SequenceClock([0, 2000, 2000, 2000])
             result = CampaignOwner(allocation, state, clock=clock, sleeper=lambda _: None).run(
                 FakeLauncher(state), FakeRelease())
-            self.assertEqual(result["assigned"], 3)
+            self.assertEqual(result["assigned"], 4)
             self.assertTrue(all(row["execution"]["status"] == "unstarted_window_expired"
                                 for row in result["rows"]))
 
