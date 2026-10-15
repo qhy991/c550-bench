@@ -1,4 +1,5 @@
 """Fixed reference selection, canonical qualification and author isolation."""
+import contextlib
 import json
 import shutil
 import subprocess
@@ -116,6 +117,15 @@ class ReferenceTests(unittest.TestCase):
                 qualified_reference(root, receipt)
 
 
+@contextlib.contextmanager
+def cpu_graph_backend():
+    from torch._dynamo.backends.registry import lookup_backend
+    def lookup(name):
+        return (lambda graph, inputs: graph.forward) if name == 'inductor' else lookup_backend(name)
+    with patch('torch._dynamo.backends.registry.lookup_backend', side_effect=lookup):
+        yield
+
+
 class CompilationTests(unittest.TestCase):
     def compile(self, root, function, capture='fullgraph'):
         import torch._dynamo
@@ -129,8 +139,7 @@ class CompilationTests(unittest.TestCase):
         def function(value):
             torch._dynamo.graph_break()
             return value + 1
-        with tempfile.TemporaryDirectory() as directory, patch(
-                'torch._dynamo.backends.registry.lookup_backend', return_value=lambda graph, inputs: graph.forward):
+        with tempfile.TemporaryDirectory() as directory, cpu_graph_backend():
             call, diagnostics = self.compile(Path(directory), function)
             with self.assertRaises(torch._dynamo.exc.Unsupported):
                 call(torch.ones(4))
@@ -139,8 +148,7 @@ class CompilationTests(unittest.TestCase):
     def test_recompile_exhaustion_is_a_hard_failure_and_partial_breaks_are_recorded(self):
         import torch
         import torch._dynamo.config as config
-        with tempfile.TemporaryDirectory() as directory, patch(
-                'torch._dynamo.backends.registry.lookup_backend', return_value=lambda graph, inputs: graph.forward):
+        with tempfile.TemporaryDirectory() as directory, cpu_graph_backend():
             call, diagnostics = self.compile(Path(directory), lambda value: value + 1)
             with config.patch(recompile_limit=1):
                 self.assertTrue(torch.equal(call(torch.ones(4)), torch.full((4,), 2.)))
@@ -152,8 +160,7 @@ class CompilationTests(unittest.TestCase):
             first = value + 1
             torch._dynamo.graph_break()
             return first * 2
-        with tempfile.TemporaryDirectory() as directory, patch(
-                'torch._dynamo.backends.registry.lookup_backend', return_value=lambda graph, inputs: graph.forward):
+        with tempfile.TemporaryDirectory() as directory, cpu_graph_backend():
             call, diagnostics = self.compile(Path(directory), partial, 'declared_partial')
             self.assertTrue(torch.equal(call(torch.ones(4)), torch.full((4,), 4.)))
             self.assertTrue(diagnostics()['graph_breaks'])
