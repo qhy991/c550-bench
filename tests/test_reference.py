@@ -253,23 +253,33 @@ class AuthorMountTests(unittest.TestCase):
             private.mkdir(parents=True)
             (private / 'adapter.py').write_text('secret = 1\n')
             script = root / 'probe.py'
-            script.write_text('from pathlib import Path\n' + ''.join(
+            script.write_text(
+                'import json\nfrom pathlib import Path\n'
+                'def source_denied(path):\n'
+                '    try:\n'
+                '        value = Path(path).read_bytes()\n'
+                '    except PermissionError:\n'
+                '        return\n'
+                '    assert value == b"", path\n' + ''.join(
                 f'assert not Path({str(tree / name / "private.py")!r}).exists()\n'
                 for tree in (root, source) for name in ('baselines', 'examples', '.git')) + ''.join(
-                f'assert Path({str(tree / "chosen.py")!r}).read_bytes() == b""\n'
+                f'source_denied({str(tree / "chosen.py")!r})\n'
                 for tree in (root, source)) + ''.join(
-                f'assert Path({str(tree / "other-task.py")!r}).read_bytes() == b""\n'
+                f'source_denied({str(tree / "other-task.py")!r})\n'
                 for tree in (root, source)) + ''.join(
-                f'assert Path({str(tree / "campaign/reference.py")!r}).read_bytes() == b""\n'
+                f'source_denied({str(tree / "campaign/reference.py")!r})\n'
                 f'assert not Path({str(tree / "campaign/__pycache__/reference.pyc")!r}).exists()\n'
                 for tree in (root, source)) +
                 f'assert not Path({str(private)!r}).exists()\n' +
-                f'assert Path({str(root / ".data/benchmark/L1/fixture/definition.json")!r}).is_file()\n')
+                f'assert Path({str(root / ".data/benchmark/L1/fixture/definition.json")!r}).is_file()\n' +
+                f'assert json.loads(Path({str(root / ".data/benchmark/L1/fixture/definition.json")!r}).read_text()) == {{"spec": "allowed"}}\n')
             protocol = {'deployment': {'bubblewrap': shutil.which('bwrap'), 'hmz_root': '/absent-hmz',
                 'hmz_python_root': '/absent-python', 'provider_native': '/absent-provider'}}
             command = sandbox(root, source, writable=[], protocol=protocol, author=True)
-            subprocess.run([*command, sys.executable, '-I', str(script)], check=True,
-                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=15)
+            result = subprocess.run([*command, sys.executable, '-I', str(script)],
+                                    capture_output=True, text=True, timeout=15)
+            self.assertEqual(result.returncode, 0,
+                             f'author mask probe failed\nstdout={result.stdout}\nstderr={result.stderr}')
 
 
 if __name__ == '__main__':
