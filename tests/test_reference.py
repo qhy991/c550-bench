@@ -56,7 +56,7 @@ class ReferenceTests(unittest.TestCase):
         write(material / 'definition.json', definition)
         (material / 'reference.py').write_text(original)
         (material / 'workload.jsonl').write_text(''.join(json.dumps({
-            'uuid': f'fixture-{index}', 'axes': {'n': 4}, 'inputs': {'x': {'type': 'random'}}
+            'uuid': f'fixture-{index}', 'axes': {'n': index + 4}, 'inputs': {'x': {'type': 'random'}}
         }) + '\n' for index in range(16)))
         return root, bench
 
@@ -94,10 +94,10 @@ class ReferenceTests(unittest.TestCase):
             with patch('campaign.assay.admit_device'), patch.object(c550bench, 'check_problem', cpu_check):
                 result = qualify_reference(root, {'reference_bundle': str(bundle),
                     'stop_at_epoch': time.time() + 60}, output)
-            return result, read_object(output / 'correctness.json')
+            return result, read_object(output / 'correctness.json'), read_object(output / 'compilation.json')
 
     def test_actual_selected_callable_traverses_all_original_cases_without_device_claim(self):
-        result, correctness = self.check_fixture('def run(x): return x.clone()\n')
+        result, correctness, _ = self.check_fixture('def run(x): return x.clone()\n')
         self.assertEqual(correctness['status'], 'passed')
         self.assertEqual(len(correctness['cases']), 160)
         self.assertFalse(result['correctness']['full_device_correctness'])
@@ -105,8 +105,24 @@ class ReferenceTests(unittest.TestCase):
         self.assertEqual(result['measurement']['status'], 'coverage_missing')
         self.assertEqual(result['profile']['status'], 'coverage_missing')
 
+    def test_static_reference_compiles_all_sixteen_original_shapes_for_ten_rounds(self):
+        import torch._dynamo
+        torch._dynamo.reset()
+        self.addCleanup(torch._dynamo.reset)
+        route = "ROUTE = {'kind': 'inductor', 'capture': 'fullgraph', 'dynamic': False, 'known_eager_regions': []}\n"
+        with cpu_graph_backend():
+            result, correctness, compilation = self.check_fixture(route)
+        self.assertEqual(correctness['status'], 'passed')
+        self.assertEqual([(case['workload_uuid'], case['round']) for case in correctness['cases']],
+                         [(f'fixture-{i}', r) for i in range(16) for r in range(10)])
+        self.assertTrue(all(case['passed'] for case in correctness['cases']))
+        self.assertEqual(len(compilation['graphs']), 16)
+        self.assertEqual(compilation['graph_breaks'], {})
+        self.assertEqual(compilation['fallback_policy']['recompile_limit'], 16)
+        self.assertFalse(result['correctness']['full_device_correctness'])
+
     def test_wrong_selected_callable_fails_the_canonical_comparator(self):
-        result, correctness = self.check_fixture('def run(x): return x * 0\n')
+        result, correctness, _ = self.check_fixture('def run(x): return x * 0\n')
         self.assertEqual(result['status'], 'failed')
         self.assertEqual(correctness['status'], 'failed')
         self.assertEqual(correctness['cases'][0]['workload_uuid'], 'fixture-0')
@@ -165,10 +181,10 @@ class ReferenceLifecycleTests(unittest.TestCase):
 
 
 @contextlib.contextmanager
-def cpu_graph_backend():
+def cpu_graph_backend(backend=None):
     from torch._dynamo.backends.registry import lookup_backend
     def lookup(name):
-        return (lambda graph, inputs: graph.forward) if name == 'inductor' else lookup_backend(name)
+        return (backend or (lambda graph, inputs: graph.forward)) if name == 'inductor' else lookup_backend(name)
     with patch('torch._dynamo.backends.registry.lookup_backend', side_effect=lookup):
         yield
 
@@ -192,18 +208,18 @@ class CompilationTests(unittest.TestCase):
             original = c550bench.load_module(path, name)
             route = {'kind': 'inductor', 'capture': 'fullgraph', 'dynamic': False,
                      'known_eager_regions': []}
-            call, diagnostics = compiled_original(original, route, root)
+            call, diagnostics = compiled_original(original, route, root, workload_ids=('fixture',))
             self.assertTrue(torch.equal(call(torch.ones(4)), torch.full((4,), 3.)))
             self.assertEqual(len(diagnostics()['graphs']), 1)
             self.assertEqual(diagnostics()['graph_breaks'], {})
             self.assertTrue((root / 'graph-0000.py').is_file())
 
-    def compile(self, root, function, capture='fullgraph'):
+    def compile(self, root, function, capture='fullgraph', workload_ids=('fixture',)):
         import torch._dynamo
         torch._dynamo.reset()
         route = {'kind': 'inductor', 'capture': capture, 'dynamic': False,
                  'known_eager_regions': ['explicit CPU test graph break'] if capture == 'declared_partial' else []}
-        return compiled_original(types.SimpleNamespace(run=function), route, root)
+        return compiled_original(types.SimpleNamespace(run=function), route, root, workload_ids=workload_ids)
 
     def test_strict_actual_dynamo_refuses_graph_break_without_eager_replacement(self):
         import torch
@@ -216,17 +232,50 @@ class CompilationTests(unittest.TestCase):
                 call(torch.ones(4))
             self.assertEqual(diagnostics()['graphs'], [])
 
-    def test_recompile_exhaustion_is_a_hard_failure_and_partial_breaks_are_recorded(self):
+    def test_population_capacity_is_finite_and_restores_ambient_configuration(self):
         import torch
         import torch._dynamo.config as config
-        with tempfile.TemporaryDirectory() as directory, cpu_graph_backend():
+        policy = {'recompile_limit': 32, 'suppress_errors': True, 'fail_on_recompile_limit_hit': False}
+        with tempfile.TemporaryDirectory() as directory, cpu_graph_backend(), config.patch(**policy):
+            call, diagnostics = self.compile(Path(directory), lambda value: value + 1,
+                workload_ids=tuple(f'fixture-{i}' for i in range(16)))
+            self.assertEqual({name: getattr(config, name) for name in policy}, policy)
+            for size in range(4, 20):
+                self.assertTrue(torch.equal(call(torch.ones(size)), torch.full((size,), 2.)))
+                self.assertEqual({name: getattr(config, name) for name in policy}, policy)
+            with self.assertRaises(torch._dynamo.exc.FailOnRecompileLimitHit):
+                call(torch.ones(20))
+            self.assertEqual(len(diagnostics()['graphs']), 16)
+            self.assertEqual({name: getattr(config, name) for name in policy}, policy)
+
+    def test_accumulated_exhaustion_remains_fatal_without_changing_its_limit(self):
+        import torch
+        import torch._dynamo.config as config
+        with tempfile.TemporaryDirectory() as directory, cpu_graph_backend(), config.patch(accumulated_recompile_limit=1):
+            call, diagnostics = self.compile(Path(directory), lambda value: value + 1,
+                workload_ids=('first', 'second'))
+            self.assertTrue(torch.equal(call(torch.ones(4)), torch.full((4,), 2.)))
+            with self.assertRaises(torch._dynamo.exc.FailOnRecompileLimitHit):
+                call(torch.ones(5))
+            self.assertEqual(len(diagnostics()['graphs']), 1)
+            self.assertEqual(diagnostics()['accumulated_recompile_limit'], 1)
+            self.assertEqual(config.accumulated_recompile_limit, 1)
+
+    def test_backend_failure_remains_fatal_and_restores_ambient_configuration(self):
+        import torch
+        import torch._dynamo.config as config
+        policy = {'recompile_limit': 32, 'suppress_errors': True, 'fail_on_recompile_limit_hit': False}
+        def fail(graph, inputs):
+            raise RuntimeError('CPU backend failure fixture')
+        with tempfile.TemporaryDirectory() as directory, config.patch(**policy), cpu_graph_backend(fail):
             call, diagnostics = self.compile(Path(directory), lambda value: value + 1)
-            with config.patch(recompile_limit=1):
-                self.assertTrue(torch.equal(call(torch.ones(4)), torch.full((4,), 2.)))
-                with self.assertRaises(Exception) as failure:
-                    call(torch.ones(5))
-                self.assertIn('recompile_limit', str(failure.exception))
-            self.assertTrue(diagnostics()['fallback_policy']['fail_on_recompile_limit_hit'])
+            with self.assertRaisesRegex(torch._dynamo.exc.BackendCompilerFailed, 'CPU backend failure fixture'):
+                call(torch.ones(4))
+            self.assertEqual(len(diagnostics()['graphs']), 1)
+            self.assertEqual({name: getattr(config, name) for name in policy}, policy)
+
+    def test_declared_partial_breaks_are_recorded(self):
+        import torch
         def partial(value):
             first = value + 1
             torch._dynamo.graph_break()

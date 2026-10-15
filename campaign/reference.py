@@ -52,7 +52,7 @@ def prepare_reference(root: Path, source: Path, output: Path) -> dict:
     return prepared
 
 
-def compiled_original(original, route: dict, evidence: Path):
+def compiled_original(original, route: dict, evidence: Path, *, workload_ids: tuple[str, ...]):
     """Retain emitted graphs and refuse compiler errors and recompile-limit fallback."""
     import torch
     import torch._dynamo.config as config
@@ -63,9 +63,11 @@ def compiled_original(original, route: dict, evidence: Path):
     if route['capture'] == 'declared_partial' and not route['known_eager_regions']:
         raise ValueError('partial compilation must declare its eager regions')
     # The captured MetaX convert_frame raises FailOnRecompileLimitHit for this flag.
-    policy = {'suppress_errors': False, 'fail_on_recompile_limit_hit': True}
+    policy = {'suppress_errors': False, 'fail_on_recompile_limit_hit': True,
+              'recompile_limit': len(workload_ids)}
     for name in policy:
         getattr(config, name)
+    accumulated_limit = config.accumulated_recompile_limit
     backend = lookup_backend('inductor')
     graphs = []
     before = dict(counters['graph_break'])
@@ -84,7 +86,9 @@ def compiled_original(original, route: dict, evidence: Path):
                                  fullgraph=route['capture'] == 'fullgraph', dynamic=route['dynamic'])
 
     def run(*inputs):
+        nonlocal accumulated_limit
         with config.patch(**policy):
+            accumulated_limit = config.accumulated_recompile_limit
             result = compiled(*inputs)
         if route['capture'] == 'fullgraph' and not graphs:
             raise RuntimeError('strict reference produced no compiled graph')
@@ -94,6 +98,7 @@ def compiled_original(original, route: dict, evidence: Path):
         return {'graphs': graphs, 'graph_breaks': {
             reason: count - before.get(reason, 0) for reason, count in counters['graph_break'].items()
             if count > before.get(reason, 0)}, 'fallback_policy': policy,
+            'accumulated_recompile_limit': accumulated_limit,
             'uniform_compilation_claim': False,
             'compiled_graphs_are_not_device_dispatch_or_performance_proof': True}
     return run, diagnostics
@@ -123,7 +128,8 @@ def qualify_reference(root: Path, request: dict, output: Path) -> dict:
                     'float32_matmul_precision': torch.get_float32_matmul_precision(),
                     'allow_tf32': torch.backends.cuda.matmul.allow_tf32})
         if route['kind'] == 'inductor':
-            call, diagnostics = compiled_original(original, route, output)
+            call, diagnostics = compiled_original(
+                original, route, output, workload_ids=tuple(selected['workload_ids']))
         elif route['kind'] == 'tracked_callable':
             call = adapter.run
         else:
