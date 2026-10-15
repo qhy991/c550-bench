@@ -26,6 +26,11 @@ SOURCE = Path(__file__).resolve().parents[1]
 
 
 class ReferenceTests(unittest.TestCase):
+    def setUp(self):
+        helper = patch('campaign.assay.prepare_maca_helper', return_value={'scope': 'CPU source fixture'})
+        helper.start()
+        self.addCleanup(helper.stop)
+
     def fixture(self, base, source='def run(x): return x.clone()\n'):
         root = base / 'run'
         task = {'id': 'L1/fixture', 'smoke_workload_uuid': 'fixture-0'}

@@ -53,3 +53,23 @@ certify a strong denominator, or award a speedup. The entire twelve-task set sti
 requires original C550 receipts, complete-call timing, A/A neutrality, native
 dispatch evidence, independent profile and canonical release before formal
 comparison.
+
+The installed MACA SDK also compiles a host admission helper, even for a library
+GEMM. `prepare_reference` now builds and loads `MacaUtils` into its private
+`runtime-helper` artifact during CPU preparation in the captured SDK. The
+artifact filesystem must permit executable mappings. The SDK owns its cache key
+and native module format; no vendor source or generated binary enters Git.
+The original `/tmp` policy remains noexec.
+
+Before admission, `prepared_maca_helper` loads that artifact with the SDK's scoped
+cache setting and build-refusal hook. The same hook stays active through actual
+route observation, so a missing or unloadable helper cannot trigger a host build
+after the lease. Admission records the consumed helper. The helper cache enters
+only the trusted assay namespace. Its settings are restored afterward, and the
+candidate worker receives no private baseline bundle.
+
+This artifact prepares only the SDK host utility. Inductor graph compilation,
+Triton kernel/launcher caches and arbitrary candidate code generation require
+their own explicit executable preparation and device-dependent setup evidence.
+They do not inherit qualification from the host helper. Timing, profile and
+strong-reference status remain unqualified.

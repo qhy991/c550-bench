@@ -43,9 +43,11 @@ def prepare_reference(root: Path, source: Path, output: Path) -> dict:
     output.mkdir(parents=True, exist_ok=False)
     shutil.copyfile(adapter, output / 'adapter.py')
     (output / 'adapter.py').chmod(0o444)
+    from .assay import prepare_maca_helper
+    prepare_maca_helper(root, output / 'runtime-helper')
     prepared = {**selected, 'sources': sources, 'status': 'source_prepared',
                 'device_setup': 'lazy backend compilation and device dispatch remain unqualified',
-                'performance': 'coverage_missing'}
+                'runtime_helper': str(output / 'runtime-helper'), 'performance': 'coverage_missing'}
     publish_new(output / 'source.json', prepared)
     return prepared
 
@@ -104,7 +106,7 @@ def qualify_reference(root: Path, request: dict, output: Path) -> dict:
     if any(selected.get(key) != value for key, value in source_binding(root).items()):
         raise ValueError('private reference source differs from the frozen selection')
     from .assay import admit_device, isolated_measurement_coverage
-    admit_device(root, request, output)
+    admit_device(root, request, output, runtime_helper=Path(selected['runtime_helper']))
     import torch
     started = time.time()
     diagnostics = lambda: {}

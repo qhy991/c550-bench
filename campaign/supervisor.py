@@ -37,9 +37,11 @@ class AssignmentSupervisor:
                    'hard_stop_at_epoch': self.claim['stop_at_epoch'],
                    'baseline_receipt': str(self.folder / 'reference-qualification/result.json')}
         publish_new(output / 'request.json', request)
+        baseline = read_object(self.folder / 'reference-qualification/result.json')
         command = sandbox(self.root, SOURCE, writable=[output],
                           extra_readonly=[self.folder / 'snapshots' / candidate,
-                                          self.folder / 'reference-qualification/result.json'],
+                                          self.folder / 'reference-qualification/result.json',
+                                          Path(baseline['source']['runtime_helper'])],
                           gpu=True, protocol=self.protocol)
         # Only this attempt is visible to the worker, not other candidates or results.
         command += [self.protocol['deployment']['assay_python'], '-I', str(SOURCE / 'campaign/entry.py'),

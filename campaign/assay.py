@@ -1,6 +1,7 @@
 """Trusted whole-task oracle with isolated candidates and explicit measurement coverage."""
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import asdict
 import math
 import os
@@ -55,25 +56,79 @@ def validate_runtime_capture(root: Path):
             raise ValueError(f'assay {package} differs from the selected Compiler host capture')
 
 
-def admit_device(root: Path, request: dict, output: Path) -> None:
+def _helper_module(utils) -> Path:
+    return Path(utils.load_binary.__self__.__file__).resolve(strict=True)
+
+
+def _no_helper_build(*arguments, **keywords):
+    raise RuntimeError('prepared MACA host helper is unavailable; prepare it without a device before admission')
+
+
+def prepare_maca_helper(root: Path, output: Path) -> dict:
+    """Compile and load only the SDK host helper during CPU preparation."""
+    validate_runtime_capture(root)
+    output.mkdir(parents=True, exist_ok=False)
+    if os.statvfs(output).f_flag & os.ST_NOEXEC:
+        raise PermissionError('MACA helper preparation requires a declared executable artifact filesystem')
+    from triton import knobs
+    from triton.backends.metax.driver import MacaUtils
+    with knobs.cache.scope(), knobs.build.scope():
+        knobs.cache.dir = str(output / 'triton')
+        utils = MacaUtils()
+        module = _helper_module(utils)
+        module.relative_to(output.resolve())
+        knobs.build.impl = _no_helper_build
+        if _helper_module(MacaUtils()) != module:
+            raise ValueError('SDK host helper cache consumption differs from CPU preparation')
+    record = {'status': 'host_helper_prepared', 'python': platform.python_version(),
+              'triton': version('triton'), 'cache': 'triton',
+              'module': str(module.relative_to(output.resolve())),
+              'scope': 'SDK host helper compile and load only; no device function invoked'}
+    publish_new(output / 'preparation.json', record)
+    return record
+
+
+@contextmanager
+def prepared_maca_helper(root: Path, artifact: Path):
+    """Load the prepared SDK helper before the lease and forbid its rebuild."""
+    validate_runtime_capture(root)
+    record = read_object(artifact / 'preparation.json')
+    if record['python'] != platform.python_version() or record['triton'] != version('triton'):
+        raise ValueError('prepared MACA helper belongs to a different Python or Triton runtime')
+    module = (artifact / record['module']).resolve(strict=True)
+    module.relative_to(artifact.resolve())
+    if os.statvfs(module).f_flag & os.ST_NOEXEC:
+        raise PermissionError('prepared MACA helper must be mounted executable; /tmp stays noexec')
+    from triton import knobs
+    from triton.backends.metax.driver import MacaUtils
+    with knobs.cache.scope(), knobs.build.scope():
+        knobs.cache.dir = str(artifact / record['cache'])
+        knobs.build.impl = _no_helper_build
+        if _helper_module(MacaUtils()) != module:
+            raise ValueError('loaded MACA helper differs from its prepared artifact')
+        yield {'artifact': str(artifact), 'module': str(module), 'build_policy': 'cache_only_no_build'}
+
+
+def admit_device(root: Path, request: dict, output: Path, *, runtime_helper: Path) -> None:
     """Shared admission for the reference opportunity and isolated candidate assay."""
     validate_runtime_capture(root)
     binding = read_object(root / 'campaign/binding.json')
     protocol = read_object(root / binding['measurement_protocol'])
     deadline = request['stop_at_epoch']
-    if time.time() >= deadline:
-        raise TimeoutError('assay deadline closed before device admission')
     compiler = root / '.deps/cake-ir'
     sys.path.insert(0, str(compiler / 'src'))
     from open_cake_ir.evaluation.local_broker import admit_local_job
     from open_cake_ir.evaluation.triton_metax import observe_local_metax
     route = protocol['deployment']['devices'][str(binding['physical_device'])]
-    job = admit_local_job('maca', device=binding['physical_device'], lock_scope='device',
-                          runtime_device=route['runtime_device'], expected_pci=route['expected_pci'],
-                          queue_seconds=max(0, min(300, deadline - time.time())))
-    runtime = str(Path(protocol['deployment']['runtime_library']).resolve(strict=True))
-    admission = observe_local_metax('xcore1002', runtime_library=runtime)
-    publish_new(output / 'admission.json', {'job': job, **asdict(admission)})
+    with prepared_maca_helper(root, runtime_helper) as helper:
+        if time.time() >= deadline:
+            raise TimeoutError('assay deadline closed before device admission')
+        job = admit_local_job('maca', device=binding['physical_device'], lock_scope='device',
+                              runtime_device=route['runtime_device'], expected_pci=route['expected_pci'],
+                              queue_seconds=max(0, min(300, deadline - time.time())))
+        runtime = str(Path(protocol['deployment']['runtime_library']).resolve(strict=True))
+        admission = observe_local_metax('xcore1002', runtime_library=runtime)
+        publish_new(output / 'admission.json', {'job': job, **asdict(admission), 'runtime_helper': helper})
     import torch
     torch.set_num_threads(4)
 
@@ -83,7 +138,7 @@ def evaluate(root: Path, request: dict, output: Path) -> dict:
     import c550bench
     from .reference import qualified_reference
     baseline = qualified_reference(root, Path(request['baseline_receipt']))
-    admit_device(root, request, output)
+    admit_device(root, request, output, runtime_helper=Path(baseline['source']['runtime_helper']))
     binding = read_object(root / 'campaign/binding.json')
     protocol = read_object(root / binding['measurement_protocol'])
     deadline = request['stop_at_epoch']
