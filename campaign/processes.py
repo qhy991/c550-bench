@@ -134,6 +134,20 @@ def sandbox(root: Path, source: Path, *, writable: list[Path], extra_readonly=()
         command += ['--ro-bind', str(path), str(path)]
     for path in writable:
         command += ['--bind', str(path), str(path)]
+    if author:
+        baseline = read_object(root / 'campaign/binding.json')['baseline']
+        for tree in dict.fromkeys((source, root)):
+            hidden_directories = ('.git', 'baselines', 'examples')
+            for name in hidden_directories:
+                path = tree / name
+                if path.is_dir():
+                    command += ['--tmpfs', str(path)]
+                elif path.exists():
+                    command += ['--ro-bind', '/dev/null', str(path)]
+            selected = tree / baseline
+            if selected.exists() and not any(selected.is_relative_to(tree / name)
+                                             for name in hidden_directories):
+                command += ['--ro-bind', '/dev/null', str(selected)]
     if gpu:
         command += ['--unshare-net']
         device = read_object(root / 'campaign/binding.json')['physical_device']

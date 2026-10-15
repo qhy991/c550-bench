@@ -55,9 +55,8 @@ def validate_runtime_capture(root: Path):
             raise ValueError(f'assay {package} differs from the selected Compiler host capture')
 
 
-def evaluate(root: Path, request: dict, output: Path) -> dict:
-    """Invoked only by the supervisor's isolated, bounded assay subprocess."""
-    import c550bench
+def admit_device(root: Path, request: dict, output: Path) -> None:
+    """Shared admission for the reference opportunity and isolated candidate assay."""
     validate_runtime_capture(root)
     binding = read_object(root / 'campaign/binding.json')
     protocol = read_object(root / binding['measurement_protocol'])
@@ -77,6 +76,18 @@ def evaluate(root: Path, request: dict, output: Path) -> dict:
     publish_new(output / 'admission.json', {'job': job, **asdict(admission)})
     import torch
     torch.set_num_threads(4)
+
+
+def evaluate(root: Path, request: dict, output: Path) -> dict:
+    """Invoked only by the supervisor's isolated, bounded assay subprocess."""
+    import c550bench
+    from .reference import qualified_reference
+    baseline = qualified_reference(root, Path(request['baseline_receipt']))
+    admit_device(root, request, output)
+    binding = read_object(root / 'campaign/binding.json')
+    protocol = read_object(root / binding['measurement_protocol'])
+    deadline = request['stop_at_epoch']
+    import torch
     c550bench.ROOT = root
     c550bench.upstream()
     task = c550bench.task_record(binding['task'])
@@ -121,7 +132,7 @@ def evaluate(root: Path, request: dict, output: Path) -> dict:
               'status': 'coverage_missing' if correctness['full_device_correctness'] else 'incorrect',
               'correctness': {'status': correctness['status'],
                               'full_device_correctness': correctness['full_device_correctness']},
-              'workloads': rows, 'measurement': isolated_measurement_coverage(),
+              'workloads': rows, 'baseline': baseline, 'measurement': isolated_measurement_coverage(),
               'profile': isolated_measurement_coverage(), 'completed_at_epoch': time.time()}
     if result['completed_at_epoch'] >= deadline:
         raise TimeoutError('assay completed after its original deadline')

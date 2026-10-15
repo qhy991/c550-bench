@@ -34,10 +34,12 @@ class AssignmentSupervisor:
                 else self.claim['search_stop_at_epoch'])
         request = {'id': identity, 'phase': phase, 'candidate': candidate,
                    'snapshot': str(self.folder / 'snapshots' / candidate), 'stop_at_epoch': stop,
-                   'hard_stop_at_epoch': self.claim['stop_at_epoch']}
+                   'hard_stop_at_epoch': self.claim['stop_at_epoch'],
+                   'baseline_receipt': str(self.folder / 'reference-qualification/result.json')}
         publish_new(output / 'request.json', request)
         command = sandbox(self.root, SOURCE, writable=[output],
-                          extra_readonly=[self.folder / 'snapshots' / candidate],
+                          extra_readonly=[self.folder / 'snapshots' / candidate,
+                                          self.folder / 'reference-qualification/result.json'],
                           gpu=True, protocol=self.protocol)
         # Only this attempt is visible to the worker, not other candidates or results.
         command += [self.protocol['deployment']['assay_python'], '-I', str(SOURCE / 'campaign/entry.py'),
@@ -53,6 +55,32 @@ class AssignmentSupervisor:
             raise ValueError('assay result identity differs')
         self.results.append(result)
         return result
+
+    def qualify_reference(self):
+        from .reference import prepare_reference, qualified_reference
+        bundle = self.folder / 'reference-source'
+        prepare_reference(self.root, SOURCE, bundle)
+        output = self.folder / 'reference-qualification'
+        output.mkdir()
+        request = {'reference_bundle': str(bundle),
+                   'stop_at_epoch': self.claim['search_stop_at_epoch'],
+                   'hard_stop_at_epoch': self.claim['stop_at_epoch']}
+        publish_new(output / 'request.json', request)
+        command = sandbox(self.root, SOURCE, writable=[output], extra_readonly=[bundle],
+                          gpu=True, protocol=self.protocol)
+        command += [self.protocol['deployment']['assay_python'], '-I', str(SOURCE / 'campaign/entry.py'),
+                    'reference', '--root', str(self.root), '--state', str(self.state),
+                    '--request', str(output / 'request.json')]
+        environment = runtime_environment(self.root)
+        environment.update(TORCH_COMPILE_DEBUG='1', TORCH_COMPILE_DEBUG_DIR=str(output / 'compile-debug'),
+                           TORCHINDUCTOR_CACHE_DIR=str(output / 'inductor-cache'),
+                           TORCH_LOGS='graph_breaks,recompiles')
+        code = run_bounded(command, cwd=self.root, env=environment,
+                           stop=request['stop_at_epoch'], hard_stop=request['hard_stop_at_epoch'],
+                           log=output / 'process.log', process_record=output / 'process.json')
+        if code != 0 or not (output / 'result.json').is_file():
+            raise RuntimeError(f'fixed reference outcome unknown, exit {code}; opportunity consumed')
+        return qualified_reference(self.root, output / 'result.json')
 
     def service(self):
         incoming = self.root / 'campaign/requests'
@@ -132,6 +160,7 @@ class AssignmentSupervisor:
         confirmation = {'status': 'missing'}
         nominee = None
         try:
+            self.qualify_reference()
             author_exit = self.author()
             self.service()
         except Exception as error:

@@ -11,7 +11,7 @@ SOURCE = Path(__file__).resolve().parents[1]
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('action', choices=('supervise', 'assay', 'release'))
+    parser.add_argument('action', choices=('supervise', 'assay', 'reference', 'release'))
     parser.add_argument('--root', required=True, type=Path)
     parser.add_argument('--state', required=True, type=Path)
     parser.add_argument('--request', type=Path)
@@ -29,6 +29,11 @@ def main():
             parser.error('release requires a create-only observation path')
         from campaign.live import observe_release
         observe_release(args.root, args.request)
+    elif args.action == 'reference':
+        if args.request is None:
+            parser.error('reference requires a trusted bounded request')
+        from campaign.reference import qualify_reference
+        qualify_reference(args.root, read_object(args.request), args.request.parent)
     elif args.action == 'assay':
         if args.request is None:
             parser.error('assay requires a trusted request')
