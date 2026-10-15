@@ -136,6 +136,8 @@ def sandbox(root: Path, source: Path, *, writable: list[Path], extra_readonly=()
         command += ['--bind', str(path), str(path)]
     if author:
         baseline = read_object(root / 'campaign/binding.json')['baseline']
+        selections = read_object(root / 'campaign/frozen-plan.json')['baseline_files'].values()
+        hidden_files = tuple(dict.fromkeys((*selections, baseline, 'campaign/reference.py')))
         for tree in dict.fromkeys((source, root)):
             hidden_directories = ('.git', 'baselines', 'examples')
             for name in hidden_directories:
@@ -144,15 +146,17 @@ def sandbox(root: Path, source: Path, *, writable: list[Path], extra_readonly=()
                     command += ['--tmpfs', str(path)]
                 elif path.exists():
                     command += ['--ro-bind', '/dev/null', str(path)]
-            for relative in dict.fromkeys((baseline, 'campaign/reference.py')):
+            hidden_caches = set()
+            for relative in hidden_files:
                 selected = tree / relative
                 if selected.exists() and not any(selected.is_relative_to(tree / name)
                                                  for name in hidden_directories):
                     command += ['--ro-bind', '/dev/null', str(selected)]
                 cache = selected.parent / '__pycache__'
-                if cache.is_dir() and not any(cache.is_relative_to(tree / name)
-                                               for name in hidden_directories):
+                if (cache not in hidden_caches and cache.is_dir()
+                        and not any(cache.is_relative_to(tree / name) for name in hidden_directories)):
                     command += ['--tmpfs', str(cache)]
+                    hidden_caches.add(cache)
     if gpu:
         command += ['--unshare-net']
         device = read_object(root / 'campaign/binding.json')['physical_device']

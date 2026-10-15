@@ -11,7 +11,8 @@ any author work. `campaign.reference.prepare_reference` checks the frozen Bench
 source and the canonical task projection. The original reference remains in the
 ignored task material. The private adapter copy is a projection of the selected
 tracked file. It is never mounted into the candidate worker or author namespace.
-The author mounts mask the baseline and example directories, the selected file,
+The author mounts mask the baseline and example directories and every selected
+`baseline_files` path in the canonical frozen plan. They also mask
 its trusted compilation adapter, Python bytecode caches, and Git metadata in both the prepared root and the trusted Bench source tree.
 The original high-level specification and oracle remain available to the author.
 

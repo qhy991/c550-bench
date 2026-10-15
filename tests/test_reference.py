@@ -213,10 +213,13 @@ class AuthorMountTests(unittest.TestCase):
                 for name in ('baselines', 'examples', '.git'):
                     (tree / name).mkdir(parents=True)
                 (tree / 'chosen.py').write_text('secret = 1\n')
+                (tree / 'other-task.py').write_text('sibling performance source = 1\n')
                 (tree / 'campaign/__pycache__').mkdir(parents=True)
                 (tree / 'campaign/reference.py').write_text('secret = 1\n')
                 (tree / 'campaign/__pycache__/reference.pyc').write_bytes(b'secret')
             write(root / 'campaign/binding.json', {'baseline': 'chosen.py'})
+            write(root / 'campaign/frozen-plan.json', {'baseline_files': {
+                'L1/fixture': 'chosen.py', 'L2/other': 'other-task.py'}})
             protocol = {'deployment': {'bubblewrap': '/usr/bin/bwrap', 'hmz_root': '/hmz',
                                        'hmz_python_root': '/hmz-python', 'provider_native': '/provider'}}
             command = sandbox(root, source, writable=[], protocol=protocol, author=True)
@@ -224,8 +227,9 @@ class AuthorMountTests(unittest.TestCase):
                 for name in ('baselines', 'examples', '.git'):
                     index = command.index(str(tree / name))
                     self.assertEqual(command[index - 1], '--tmpfs')
-                index = command.index(str(tree / 'chosen.py'))
-                self.assertEqual(command[index - 2:index], ['--ro-bind', '/dev/null'])
+                for name in ('chosen.py', 'other-task.py'):
+                    index = command.index(str(tree / name))
+                    self.assertEqual(command[index - 2:index], ['--ro-bind', '/dev/null'])
 
     @unittest.skipUnless(sys.platform == 'linux' and shutil.which('bwrap'), 'Linux bubblewrap required')
     def test_real_author_namespace_hides_both_performance_sources_and_preserves_oracle(self):
@@ -237,10 +241,13 @@ class AuthorMountTests(unittest.TestCase):
                     (tree / name).mkdir(parents=True)
                     (tree / name / 'private.py').write_text('secret = 1\n')
                 (tree / 'chosen.py').write_text('secret = 1\n')
+                (tree / 'other-task.py').write_text('sibling performance source = 1\n')
                 (tree / 'campaign/__pycache__').mkdir(parents=True)
                 (tree / 'campaign/reference.py').write_text('secret = 1\n')
                 (tree / 'campaign/__pycache__/reference.pyc').write_bytes(b'secret')
             write(root / 'campaign/binding.json', {'baseline': 'chosen.py'})
+            write(root / 'campaign/frozen-plan.json', {'baseline_files': {
+                'L1/fixture': 'chosen.py', 'L2/other': 'other-task.py'}})
             write(root / '.data/benchmark/L1/fixture/definition.json', {'spec': 'allowed'})
             private = base / 'owner/reference-source'
             private.mkdir(parents=True)
@@ -250,6 +257,8 @@ class AuthorMountTests(unittest.TestCase):
                 f'assert not Path({str(tree / name / "private.py")!r}).exists()\n'
                 for tree in (root, source) for name in ('baselines', 'examples', '.git')) + ''.join(
                 f'assert Path({str(tree / "chosen.py")!r}).read_bytes() == b""\n'
+                for tree in (root, source)) + ''.join(
+                f'assert Path({str(tree / "other-task.py")!r}).read_bytes() == b""\n'
                 for tree in (root, source)) + ''.join(
                 f'assert Path({str(tree / "campaign/reference.py")!r}).read_bytes() == b""\n'
                 f'assert not Path({str(tree / "campaign/__pycache__/reference.pyc")!r}).exists()\n'

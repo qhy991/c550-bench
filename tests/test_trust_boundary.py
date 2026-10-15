@@ -54,7 +54,8 @@ class IsolationTests(unittest.TestCase):
                 admit_private_paths([Path('/work/ordinary-campaign'), path], protocol, SOURCE)
         admit_private_paths([Path('/opt/campaign-a'), Path('/opt/campaign-b'), Path('/opt/owner-state')],
                             protocol, SOURCE)
-        with patch('campaign.processes.read_object', return_value={'baseline': 'examples/reference.py'}):
+        with patch('campaign.processes.read_object', return_value={'baseline': 'examples/reference.py',
+                'baseline_files': {'L1/fixture': 'examples/reference.py'}}):
             command = sandbox(Path('/opt/campaign-a'), SOURCE, writable=[], protocol=protocol, author=True)
         mounted = [command[index + 1] for index, word in enumerate(command) if word == '--ro-bind']
         self.assertNotIn('/opt', mounted)
