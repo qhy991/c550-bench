@@ -12,7 +12,7 @@ import tempfile
 import time
 from typing import Protocol
 
-from .binding import git, read_object
+from .binding import git, read_object, reconcile_allocation
 from .report import report
 
 
@@ -71,8 +71,12 @@ class CampaignOwner:
                        or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,95}", value)
                        for value in identities)):
             raise ValueError("host allocation has invalid assignment identities")
+        reconcile_allocation(self.document)
+        self.shutdown_reserve = read_object(Path(__file__).with_name('protocol.json'))['shutdown_reserve_seconds']
         capacities = {}
         for run in runs:
+            if run['author']['confirmation_seconds'] <= self.shutdown_reserve:
+                raise ValueError('confirmation budget must include the shutdown reserve')
             capacity = run.get("author_capacity")
             if type(capacity) is not int or not 1 <= capacity <= 3:
                 raise ValueError("assignment has invalid author capacity")
@@ -163,9 +167,11 @@ class CampaignOwner:
                         claim = {
                             "assignment_id": run["assignment_id"],
                             "device_id": device,
+                            "prepared_commit": run["prepared_commit"],
                             "claimed_at_epoch": now,
                             "search_stop_at_epoch": now + total - confirmation,
                             "stop_at_epoch": now + total,
+                            "execution_stop_at_epoch": now + total - self.shutdown_reserve,
                             "author_opportunity_consumed": True,
                         }
                         publish_new(self.state / "claims" / f"{run['assignment_id']}.json", claim)
@@ -215,6 +221,38 @@ class CampaignOwner:
                     pending.clear()
                     break
                 self.sleeper(0.01)
+            return report(self.allocation_path, self.state)
+
+    def reconcile(self, release_verifier: ReleaseVerifier) -> dict:
+        """Publish terminal evidence after owner loss without starting any author."""
+        from .processes import ProcessIdentity
+        with (self.state / 'owner.lock').open('a') as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            read_object(self.state / 'LAUNCH.json')
+            for path in (self.state / 'supervisors').glob('*.json'):
+                if ProcessIdentity(**read_object(path)).alive():
+                    raise ValueError('a claimed supervisor is still live; observe before reconciliation')
+            for run in self.document['runs']:
+                identity = run['assignment_id']
+                claim_path = self.state / 'claims' / f'{identity}.json'
+                terminal_path = self.state / 'terminals' / f'{identity}.json'
+                if not terminal_path.exists():
+                    retained = self.state / 'assignments' / identity / 'terminal.json'
+                    if claim_path.exists() and retained.is_file():
+                        terminal = read_object(retained)
+                    else:
+                        terminal = {'assignment_id': identity,
+                            'execution': {'status': 'unknown' if claim_path.exists() else 'unstarted_owner_exit'},
+                            'correctness': {'status': 'missing'}, 'performance': {'status': 'coverage_missing'},
+                            'confirmation': {'status': 'missing'}, 'workloads': {}}
+                    self._terminal(run, terminal)
+                if claim_path.exists() and not (self.state / 'releases' / f'{identity}.json').exists():
+                    try:
+                        release = release_verifier.observe(run, read_object(claim_path), read_object(terminal_path))
+                    except Exception as error:
+                        release = {'assignment_id': identity, 'device_id': run['device_id'],
+                                   'status': 'unverified', 'reason': f'reconcile:{type(error).__name__}'}
+                    self._release(run, release)
             return report(self.allocation_path, self.state)
 
 
