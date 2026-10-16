@@ -1,9 +1,10 @@
 # c550-bench
 
 面向 **MetaX C550** 的固定 SOL-ExecBench 正确性工作集。与
-[qhy991/bw1100-bench](https://github.com/qhy991/bw1100-bench) 共用同一上游源码、数据修订、
-12 题、192 个原始 workload、每 workload 10 轮新输入及原始比较器；只改变设备身份与
-MetaX 的实际执行入口。可用于独立 Torch、Triton-MetaX 或其他候选的 return-value ABI
+[qhy991/bw1100-bench](https://github.com/qhy991/bw1100-bench) 共用数据修订和原始 workload 定义。
+本仓库固定 12 题、192 个原始 workload，每 workload 10 轮新输入。比较器采用
+[THIRD_PARTY.md](THIRD_PARTY.md) 记录的单表达式派生版，保留原始比较规则；执行入口面向
+MetaX C550。可用于独立 Torch、Triton-MetaX 或其他候选的 return-value ABI
 验证，**不是性能基准或 NVIDIA 官方分数**。
 
 ## 题目与来源
