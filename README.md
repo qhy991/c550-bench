@@ -1,15 +1,20 @@
 # c550-bench
 
 面向 **MetaX C550** 的固定 SOL-ExecBench 正确性工作集。与
-[qhy991/bw1100-bench](https://github.com/qhy991/bw1100-bench) 共用同一上游源码、数据修订、
-12 题、192 个原始 workload、每 workload 10 轮新输入及原始比较器；只改变设备身份与
-MetaX 的实际执行入口。可用于独立 Torch、Triton-MetaX 或其他候选的 return-value ABI
+[qhy991/bw1100-bench](https://github.com/qhy991/bw1100-bench) 共用官方源码修订
+`a9fa0804c793d438e70850c33fe34426e66d53dd` 的输入生成、reference 和数值判定，
+以及同一数据修订、12 题、192 个原始 workload、每 workload 10 轮新输入。
+本仓库固定 [qhy991/SOL-Execbench](https://github.com/qhy991/SOL-Execbench) 的派生修订；
+它仅把原始 Boolean `.sum()` 改为每段最多 `1 << 20` 个元素的求和，先累加全局整数计数，
+最后转换一次 float。可用于独立 Torch、Triton-MetaX 或其他候选的 return-value ABI
 验证，**不是性能基准或 NVIDIA 官方分数**。
 
 ## 题目与来源
 
 `suite.json` 是选题和预算的唯一来源；`sources.lock.json` 固定
-SOL-ExecBench 源码和数据版本。难度 1–5 是人工估计，不是测量排名。
+SOL-ExecBench 派生源码和数据版本。非连续 mask 的 reshape 可能复制 Boolean 存储，
+比较器仍保留完整大小的数组；该改动不构成 GPU 显存修复或性能结论。
+难度 1–5 是人工估计，不是测量排名。
 
 | 题目 ID | 实际内容 | 难度 | 覆盖的挑战 |
 |---|---|---:|---|
@@ -49,7 +54,7 @@ uv pip install --python .venv/bin/python -r requirements-cpu-test.txt
 .venv/bin/python -m unittest discover -s tests -v
 ```
 
-`prepare.py` 固定上游修订，并复用其 `gen_inputs`、reference 和
+`prepare.py` 固定派生源码修订，并复用原版 `gen_inputs`、reference 和仅调整计数方式的
 `compute_error_stats`；已有准备目录若与锁文件不符则拒绝覆盖。
 扩展后的准备回执写入 `.data/materialization-suite-v2.json`，保留已有十题的
 `.data/materialization.json`，可复用原始 Parquet 缓存继续准备新增两题。

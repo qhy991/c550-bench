@@ -1,7 +1,7 @@
 {
   "sol_execbench": {
-    "url": "https://github.com/NVIDIA/SOL-ExecBench.git",
-    "revision": "a9fa0804c793d438e70850c33fe34426e66d53dd"
+    "url": "https://github.com/qhy991/SOL-Execbench.git",
+    "revision": "0d1673f5a9f9e9135ba2da107487ab17fe380f16"
   },
   "dataset": {
     "id": "nvidia/SOL-ExecBench",

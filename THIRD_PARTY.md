@@ -1,8 +1,15 @@
 # Sources and distribution boundary
 
-- Evaluation framework: NVIDIA/SOL-ExecBench, Apache-2.0. The exact revision is
-  recorded in `sources.lock.json`. Its unmodified correctness and input-generation
-  modules are loaded from the separately prepared checkout in `.deps/sol-execbench`.
+- Evaluation framework: `qhy991/SOL-Execbench`, derived from NVIDIA/SOL-ExecBench
+  revision `a9fa0804c793d438e70850c33fe34426e66d53dd`, Apache-2.0. The exact
+  derivative revision is recorded in `sources.lock.json`. Its only source change
+  sums the Boolean tolerance mask in pieces of at most `1 << 20` elements,
+  accumulates integer counts globally, and converts the total to float once.
+  Input generation, the reference, and the comparator's numerical decision are
+  unchanged. The modules are loaded from the separately prepared checkout in
+  `.deps/sol-execbench`. Reshaping a noncontiguous mask may copy Boolean storage,
+  and the comparator still holds full-size arrays. This change establishes no
+  GPU-memory repair or performance result.
 - Dataset: `nvidia/SOL-ExecBench` on Hugging Face, NVIDIA Evaluation Dataset License.
   The pinned license URL is in `sources.lock.json`. Sections 1 and 3 distinguish
   internal evaluation/benchmarking from redistribution or hosting of the dataset.
