@@ -1,8 +1,8 @@
 {
   "name": "c550-bench",
   "version": 2,
-  "target_arch": "metax_c550",
-  "target_device_name": "MetaX C550",
+  "target_arch": "metax_c500",
+  "target_device_name": "MetaX C500",
   "correctness_rounds": 10,
   "seed": 200,
   "difficulty_scale": "1 entry; 2 basic; 3 intermediate; 4 advanced; 5 challenge; editorial migration/optimization estimate, not measured",

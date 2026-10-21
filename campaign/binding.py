@@ -1,4 +1,4 @@
-"""Admit one frozen evolve plan and its explicit C550 host routing."""
+"""Admit one frozen evolve plan and its explicit C500 host routing."""
 
 from __future__ import annotations
 
@@ -9,8 +9,8 @@ import subprocess
 
 
 PLAN_KIND = "rolling_bench_fresh_search"
-ROUTING_KIND = "c550_bench_routing"
-TARGET = "metax_c550"
+ROUTING_KIND = "c500_bench_routing"
+TARGET = "metax_c500"
 CONDITIONS = ("control", "successor")
 
 
@@ -68,7 +68,7 @@ def validate_plan(plan: dict, bench_root: Path, data_root: Path) -> dict[str, tu
     if plan.get("schema_version") != 1 or plan.get("kind") != PLAN_KIND:
         raise ValueError("unsupported frozen plan; use open-cake-ir evolve freeze-bench")
     if plan.get("target") != TARGET:
-        raise ValueError("frozen plan target is not MetaX C550")
+        raise ValueError("frozen plan target is not MetaX C500")
     bindings = plan.get("bindings")
     if not isinstance(bindings, dict) or set(bindings) != {"bench", *CONDITIONS}:
         raise ValueError("frozen plan bindings differ")
@@ -79,7 +79,7 @@ def validate_plan(plan: dict, bench_root: Path, data_root: Path) -> dict[str, tu
     tracked_file(bench_root, "suite.json", "suite")
     suite = read_object(bench_root / "suite.json")
     if suite.get("version") != 2 or suite.get("target_arch") != TARGET:
-        raise ValueError("campaign requires C550 Bench suite v2")
+        raise ValueError("campaign requires C500 Bench suite v2")
     suite_tasks = [row.get("id") for row in suite.get("tasks", [])]
     tasks = plan.get("task_ids")
     if (not isinstance(tasks, list) or not tasks or len(set(tasks)) != len(tasks)
@@ -140,7 +140,7 @@ def validate_plan(plan: dict, bench_root: Path, data_root: Path) -> dict[str, tu
 
 def validate_routing(plan: dict, routing: dict) -> dict[str, dict]:
     if routing.get("schema_version") != 1 or routing.get("kind") != ROUTING_KIND:
-        raise ValueError("unsupported C550 routing document")
+        raise ValueError("unsupported C500 routing document")
     hosts = routing.get("hosts")
     routes = routing.get("assignments")
     if not isinstance(hosts, dict) or not hosts or not isinstance(routes, list):
@@ -157,7 +157,7 @@ def validate_routing(plan: dict, routing: dict) -> dict[str, dict]:
             raise ValueError("host configuration must be an object")
         devices = config.get("devices")
         if not isinstance(devices, list) or not devices:
-            raise ValueError("host requires explicit C550 devices")
+            raise ValueError("host requires explicit C500 devices")
         ids, ordinals = set(), set()
         for device in devices:
             identity, ordinal, capacity = (device.get("id"), device.get("physical_device"),
@@ -165,7 +165,7 @@ def validate_routing(plan: dict, routing: dict) -> dict[str, dict]:
             if (not isinstance(identity, str) or not identity or identity in ids
                     or type(ordinal) is not int or ordinal < 0 or ordinal in ordinals
                     or type(capacity) is not int or not 1 <= capacity <= 3):
-                raise ValueError("invalid or duplicate physical C550 device route")
+                raise ValueError("invalid or duplicate physical C500 device route")
             ids.add(identity)
             ordinals.add(ordinal)
         if type(config.get("start_window_seconds")) is not int or config["start_window_seconds"] <= 0:

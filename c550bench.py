@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""A C550 correctness-only suite reusing pinned SOL-ExecBench data and helpers."""
+"""A C500 correctness-only suite reusing pinned SOL-ExecBench data and helpers."""
 from __future__ import annotations
 
 import argparse
@@ -125,10 +125,10 @@ def compare_outputs(candidate, reference, definition, tolerance, axes):
     return {"passed": all(v["passed"] for v in checks.values()), "outputs": checks}
 
 
-def validate_c550_identity(device_name, maca_version, expected_name):
+def validate_target_identity(device_name, maca_version, expected_name):
     """The MetaX CUDA compatibility capability is not the physical xcore target."""
     if not maca_version or device_name != expected_name:
-        raise RuntimeError("Expected MetaX C550 runtime/device, got " + str(device_name))
+        raise RuntimeError(f"Expected {expected_name} runtime/device, got {device_name}")
 
 
 def check_problem(task, *, device, candidate_path, symbol, reference_selfcheck, workload_scope, rounds, output, seed, threads):
@@ -151,7 +151,7 @@ def check_problem(task, *, device, candidate_path, symbol, reference_selfcheck, 
             raise RuntimeError("CUDA-compatible MetaX device is unavailable")
         props = torch.cuda.get_device_properties(torch.device(device))
         maca_version = getattr(torch.version, "maca", None)
-        validate_c550_identity(props.name, maca_version, document("suite.json")["target_device_name"])
+        validate_target_identity(props.name, maca_version, document("suite.json")["target_device_name"])
         arch = document("suite.json")["target_arch"]
         device_name = props.name
     elif torch.device(device).type == "cpu":
