@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "kind": "c550_bench_whole_task_campaign",
-  "status": "live_qualification_required",
+  "kind": "c500_bench_whole_task_campaign",
+  "status": "timing_qualified",
   "candidate_unit": "one complete task callable covering all original workloads",
   "correctness": {
     "workloads": 16,
@@ -9,18 +9,40 @@
     "owner": "c550bench.check_problem"
   },
   "timing": {
-    "status": "unqualified",
-    "timer": null,
-    "measured_interval": null,
-    "device_state_reset": null,
-    "sample_policy": null
+    "status": "qualified",
+    "timer": "perf_counter_with_cuda_synchronize",
+    "measured_interval": "complete_callable_wall_clock",
+    "device_state_reset": "warmup_pairs_and_direction_alternation",
+    "sample_policy": {
+      "warmup_calls": 10,
+      "samples_per_direction": 30,
+      "order": "forward_then_reverse_then_aa",
+      "speedup_metric": "conservative_geomean_of_min_direction_ratios"
+    },
+    "scope": "engineering version comparison; candidate and baseline run in same process; not suitable for heldout or independent clean-start attribution",
+    "qualification_evidence": {
+      "task": "L1/069_rms_norm",
+      "target": "metax_c500",
+      "date": "2026-10-22",
+      "conservative_geomean_aa": 0.9993883048964415,
+      "workloads_tested": 16,
+      "result_record": ".local/aa-qual-L1-069-record.json"
+    }
   },
   "profiling": {
-    "status": "unqualified"
+    "status": "not_applicable",
+    "note": "paired_wall method does not include separate kernel profiling"
   },
   "release": {
-    "status": "unqualified",
-    "canonical_terminal": null
+    "status": "qualified",
+    "canonical_terminal": "process_exit_and_torch_cuda_empty_cache",
+    "qualification_evidence": {
+      "task": "L1/069_rms_norm",
+      "date": "2026-10-22",
+      "gpu_vram_after_mb": 858,
+      "gpu_util_after_pct": 0,
+      "verdict": "passed"
+    }
   },
-  "live_execution": false
+  "live_execution": true
 }
