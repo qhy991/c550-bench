@@ -56,6 +56,13 @@ def main():
     env['MACA_PATH'] = '/opt/maca'
     for k in ('http_proxy', 'https_proxy', 'all_proxy', 'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY'):
         env.pop(k, None)
+    import glob as _glob
+    _pypath_parts = (
+        _glob.glob(str(ROOT / '.venv/lib/python*/site-packages'))
+        + [str(ROOT / '.deps/sol-execbench/src')]
+    )
+    _existing = env.get('PYTHONPATH', '')
+    env['PYTHONPATH'] = ':'.join(p for p in _pypath_parts + [_existing] if p)
 
     task_text = (ROOT / 'campaign/TASK.md').read_text()
     scaffold_text = (ROOT / author['scaffold']).read_text()
