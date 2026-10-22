@@ -15,7 +15,14 @@ correctness assay, qualified event timing, profiling, fixed nomination, confirma
 device release. An author does not certify a win, extend the clock, replace a failed
 nominee or restart a claimed Run. Token use is accounting only.
 
-Live execution is currently refused. A later reviewed adapter must call Compiler catalog
-intake, include `author_context(root)` in every actual prompt, expose only the selected
-Compiler's inspect/transform/verify actions, and preserve stage origins. Correctness,
-performance, profiler coverage, release and independent attribution remain separate.
+To evaluate a candidate, run:
+
+    python3 campaign/evaluate.py --candidate <path-to-candidate.py> --id <unique-lowercase-name>
+
+This runs the full correctness gate (all 16 workloads × 10 rounds on MetaX C500) and
+paired wall-clock timing. Results appear in `campaign/evaluations/<id>/outcome.json`.
+Accepted outcomes include `conservative_geomean` (higher is better). For Cake IR
+schedules, also pass `--cake-artifact <receipt-path>`.
+
+Profiler coverage is not available on this platform; the skip reason is recorded
+automatically. Correctness, performance, and release remain separate evidence gates.
