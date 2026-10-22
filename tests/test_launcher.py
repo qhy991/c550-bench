@@ -1,5 +1,6 @@
 """CPU-only tests for the bench launcher components (no GPU required)."""
 import fcntl
+import hashlib
 import json
 import os
 import subprocess
@@ -152,7 +153,8 @@ class TestEvaluateLaunchChecks(unittest.TestCase):
 
         # Patch os.chdir and sys.argv, then call main
         with patch('sys.argv', ['evaluate.py', '--candidate',
-                                'campaign/candidates/cand_a.py', '--id', 'a001']):
+                                'campaign/candidates/cand_a.py', '--id', 'a001',
+                                '--cake-artifact', 'dummy_receipt.json']):
             orig_cwd = os.getcwd()
             try:
                 os.chdir(self.tmpdir)
@@ -186,7 +188,8 @@ class TestEvaluateLaunchChecks(unittest.TestCase):
         cand.write_text('def run(*a): pass\n')
 
         with patch('sys.argv', ['evaluate.py', '--candidate',
-                                'campaign/candidates/cand_dup.py', '--id', 'dup001']):
+                                'campaign/candidates/cand_dup.py', '--id', 'dup001',
+                                '--cake-artifact', 'dummy_receipt.json']):
             orig_cwd = os.getcwd()
             try:
                 os.chdir(self.tmpdir)
@@ -414,6 +417,175 @@ class TestBenchQueueAdapters(unittest.TestCase):
         mod._release_device_lock(fd)
         self.assertTrue(lock.exists())
         lock.unlink(missing_ok=True)
+
+    def test_one_author_per_device(self):
+        """C500AuthorLauncher.start passes start_new_session=True (one author per card)."""
+        mod = self._load_bench_queue()
+        run = {
+            'assignment_id': 'test-card-r1',
+            'root': str(self.tmpdir),
+            'device_id': 'c500-0',
+            'physical_device': 0,
+        }
+        (self.tmpdir / 'campaign').mkdir(parents=True, exist_ok=True)
+        (self.tmpdir / 'campaign/logs').mkdir(parents=True, exist_ok=True)
+
+        launched = {}
+        orig_popen = subprocess.Popen
+
+        def mock_popen(*args, **kwargs):
+            launched['start_new_session'] = kwargs.get('start_new_session')
+            # Return a dummy object with poll() method
+            class FakeProc:
+                def poll(self): return 0
+            return FakeProc()
+
+        with patch('subprocess.Popen', mock_popen):
+            launcher = mod.C500AuthorLauncher()
+            launcher.start(run, {})
+
+        self.assertTrue(launched.get('start_new_session'),
+                        'launcher must use start_new_session=True so each card gets its own process group')
+
+    def test_stop_only_current_run(self):
+        """C500ReleaseVerifier.observe uses the run's own assignment_id (not another run's)."""
+        mod = self._load_bench_queue()
+        verifier = mod.C500ReleaseVerifier()
+        run_a = {'assignment_id': 'run-a', 'device_id': 'c500-0', 'physical_device': 0}
+        run_b = {'assignment_id': 'run-b', 'device_id': 'c500-1', 'physical_device': 1}
+        term_a = {'assignment_id': 'run-a', 'execution': {'status': 'completed', 'exit_code': 0}}
+        term_b = {'assignment_id': 'run-b', 'execution': {'status': 'completed', 'exit_code': 0}}
+        res_a = verifier.observe(run_a, {}, term_a)
+        res_b = verifier.observe(run_b, {}, term_b)
+        # Each release is scoped to its own run
+        self.assertEqual(res_a['assignment_id'], 'run-a')
+        self.assertEqual(res_b['assignment_id'], 'run-b')
+        self.assertNotEqual(res_a['physical_device'], res_b['physical_device'])
+
+
+# ---------------------------------------------------------------------------
+# B1 / B3 evaluate.py guard tests
+# ---------------------------------------------------------------------------
+
+class TestEvaluateGuards(unittest.TestCase):
+
+    def setUp(self):
+        self.tmpdir = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def _write_campaign(self):
+        _make_binding(self.tmpdir)
+        _make_deadline(self.tmpdir)
+        _make_frozen_plan(self.tmpdir)
+        (self.tmpdir / 'campaign/evaluations').mkdir(parents=True, exist_ok=True)
+        (self.tmpdir / 'campaign/candidates').mkdir(parents=True, exist_ok=True)
+        (self.tmpdir / 'campaign/candidates/my_cand.py').write_text('def run(*a): pass\n')
+
+    def _load_evaluate(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            'evaluate_guards', ROOT / 'campaign/evaluate.py')
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+
+    def test_no_cake_artifact_rejected(self):
+        """evaluate.py exits non-zero (sys.exit) when --cake-artifact is omitted."""
+        self._write_campaign()
+        mod = self._load_evaluate()
+        with patch('sys.argv', ['evaluate.py', '--candidate',
+                                'campaign/candidates/my_cand.py', '--id', 'noca001']):
+            orig_cwd = os.getcwd()
+            try:
+                os.chdir(self.tmpdir)
+                mod.ROOT = self.tmpdir
+                with self.assertRaises(SystemExit) as ctx:
+                    mod.main()
+                # argparse sys.exit(2) on parse error
+                self.assertNotEqual(ctx.exception.code, 0)
+            finally:
+                os.chdir(orig_cwd)
+
+    def test_wrong_arm_receipt_rejected(self):
+        """evaluate.py rejects a receipt whose compiler_commit does not match the frozen plan."""
+        self._write_campaign()
+        mod = self._load_evaluate()
+
+        # Write a fake receipt that claims a different compiler_commit
+        receipt_dir = self.tmpdir / 'campaign/schedules/fake001'
+        receipt_dir.mkdir(parents=True, exist_ok=True)
+        source_py = receipt_dir / 'source.py'
+        source_py.write_text('# fake\n')
+        schedule_json = receipt_dir / 'schedule.json'
+        schedule_json.write_text(json.dumps({'target': 'xcore1000',
+                                             'lowering': {'backend': 'triton'}}))
+        receipt = receipt_dir / 'receipt.json'
+        receipt.write_text(json.dumps({
+            'compiler_commit': 'deadbeef',  # wrong — frozen plan has 'def456'
+            'entry_point': 'run',
+            'source': str(source_py.relative_to(self.tmpdir)),
+            'schedule': str(schedule_json.relative_to(self.tmpdir)),
+            'source_sha256': hashlib.sha256(source_py.read_bytes()).hexdigest(),
+        }))
+
+        rel_receipt = str(receipt.relative_to(self.tmpdir))
+        with patch('sys.argv', ['evaluate.py', '--candidate',
+                                'campaign/candidates/my_cand.py', '--id', 'wrongarm001',
+                                '--cake-artifact', rel_receipt]):
+            orig_cwd = os.getcwd()
+            try:
+                os.chdir(self.tmpdir)
+                mod.ROOT = self.tmpdir
+                # cake_bridge.verify-many is called as a subprocess; mock it to simulate failure
+                with patch('subprocess.check_call',
+                           side_effect=subprocess.CalledProcessError(1, 'cake_bridge')):
+                    result = mod.main()
+                self.assertEqual(result, 1)
+                outcome = json.loads(
+                    (self.tmpdir / 'campaign/evaluations/wrongarm001/outcome.json').read_text())
+                self.assertEqual(outcome['status'], 'not_qualified')
+            finally:
+                os.chdir(orig_cwd)
+
+    def test_precision_guard_rejects_premature_fp32_cast(self):
+        """precision_guard.validate raises ValueError for L1/069 schedule with BF16 reduce."""
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            'pg', ROOT / 'campaign/precision_guard.py')
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+
+        # Build a fake receipt + schedule where the reduce op uses bf16 buffers
+        tmpdir = self.tmpdir
+        schedule = {
+            'buffers': [
+                {'name': 'x', 'dtype': 'bf16'},
+                {'name': 'acc', 'dtype': 'bf16'},  # should be fp32
+            ],
+            'operations': [
+                {'kind': 'reduce', 'reads': ['x'], 'writes': ['acc'],
+                 'parameters': {}},
+            ],
+        }
+        sched_path = tmpdir / 'sched.json'
+        sched_path.write_text(json.dumps(schedule))
+        source_py = tmpdir / 'source.py'
+        source_py.write_text('# fake\n')
+        receipt = tmpdir / 'receipt.json'
+        receipt.write_text(json.dumps({
+            'compiler_commit': 'abc123',
+            'entry_point': 'run',
+            'source': 'source.py',
+            'schedule': 'sched.json',
+            'source_sha256': hashlib.sha256(source_py.read_bytes()).hexdigest(),
+        }))
+
+        with self.assertRaises(ValueError) as ctx:
+            mod.validate(tmpdir, 'L1/069_rms_norm', ['receipt.json'])
+        self.assertIn('FP32', str(ctx.exception))
 
 
 if __name__ == '__main__':

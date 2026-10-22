@@ -53,6 +53,13 @@ def main():
     if not re.fullmatch(r'[a-z0-9][a-z0-9_-]{0,63}', args.id):
         parser.error('id must be a unique lowercase artifact name')
 
+    # B1: every candidate in a Compiler comparison bench must be a Cake emission
+    if not args.cake_artifact:
+        parser.error(
+            'all candidates require --cake-artifact receipts; '
+            'Native Torch/Triton/HIP or torch.compile is not a counted Cake solution'
+        )
+
     os.chdir(str(ROOT))
     binding = json.loads((ROOT / 'campaign/binding.json').read_text())
     plan = json.loads((ROOT / 'campaign/frozen-plan.json').read_text())
@@ -82,14 +89,18 @@ def main():
         source_hash = digest(frozen)
 
         artifact_bindings = {}
-        if args.cake_artifact:
-            for name in args.cake_artifact:
-                record = json.loads(inside(name).read_text())
-                for path in (name, record['source'], record['schedule']):
-                    artifact_bindings[path] = digest(inside(path))
-            subprocess.check_call([
-                sys.executable, 'campaign/cake_bridge.py', 'verify-many',
-            ] + args.cake_artifact, timeout=180)
+        for name in args.cake_artifact:
+            record = json.loads(inside(name).read_text())
+            for path in (name, record['source'], record['schedule']):
+                artifact_bindings[path] = digest(inside(path))
+        subprocess.check_call([
+            sys.executable, 'campaign/cake_bridge.py', 'verify-many',
+        ] + args.cake_artifact, timeout=180)
+
+        # B3: precision guard (CPU-only, before device work)
+        from campaign.precision_guard import validate as precision_validate
+        precision = precision_validate(ROOT, task, args.cake_artifact)
+        (folder / 'precision.json').write_text(json.dumps(precision, indent=2) + '\n')
 
         env = dict(os.environ, CUDA_VISIBLE_DEVICES=str(device))
         for k in ('http_proxy', 'https_proxy', 'HTTP_PROXY', 'HTTPS_PROXY',
@@ -97,6 +108,7 @@ def main():
             env.pop(k, None)
 
         gate = folder / 'correctness.json'
+        caller_out = folder / 'caller-guards.json'
         latency = folder / 'latency.json'
 
         lock_fd = _acquire_device_lock(device)
@@ -115,6 +127,15 @@ def main():
             if not gate_record.get('full_device_correctness') or gate_record.get('status') != 'passed':
                 raise ValueError('candidate failed full device correctness: ' + json.dumps({
                     k: gate_record.get(k) for k in ('full_device_correctness', 'status')}))
+
+            # B3: caller guard (input-ownership and output-retention checks)
+            code = subprocess.call([
+                sys.executable, 'campaign/caller_guards.py',
+                '--candidate', _relative(frozen),
+                '--output', _relative(caller_out),
+            ], env=env)
+            if code:
+                raise ValueError('caller guard failed: exit ' + str(code))
 
             code = subprocess.call([
                 sys.executable, 'campaign/paired_wall.py',
@@ -142,11 +163,13 @@ def main():
                   for c in timing['rows']]
         handoff_row = {
             'task': task, 'status': 'accepted',
-            'reason': 'full device correctness gate and paired wall timing on C500',
-            'evidence': [_relative(gate), _relative(latency)],
+            'reason': 'full device correctness gate, caller guard, and paired wall timing on C500',
+            'evidence': [_relative(gate), _relative(caller_out), _relative(latency)],
             'candidate_source': _relative(frozen),
             'correctness_source_sha256': source_hash,
             'correctness_report': _relative(gate),
+            'caller_report': _relative(caller_out),
+            'precision_report': _relative(folder / 'precision.json'),
             'latency_report': _relative(latency),
             'profile_skip_reason': args.profile_skip_reason,
             'cake_artifacts': args.cake_artifact,
@@ -158,6 +181,7 @@ def main():
             candidate_source=_relative(frozen),
             source_sha256=source_hash,
             correctness_report=_relative(gate),
+            caller_report=_relative(caller_out),
             latency_report=_relative(latency),
             cake_artifact_bindings=artifact_bindings,
             handoff_row=handoff_row,
