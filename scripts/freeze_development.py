@@ -2,7 +2,7 @@
 """Freeze retained MetaX C500 task identities into one external-HMZ development plan.
 
 Each task's Workload, starter, Run specification and prepared baseline come from its
-newest retained C500 Run under --retained (for example /var/tmp/cake-c500-bench). A task
+newest complete retained C500 Run under --retained (for example /var/tmp/cake-c500-bench). A task
 without all four is reported and left out of the denominator, never silently dropped.
 """
 import argparse
@@ -13,22 +13,22 @@ import re
 ROOT = Path(__file__).resolve().parents[1]
 HOST = "metax-infini"
 PCIS = ("0000:09:00.0", "0000:0e:00.0", "0000:1c:00.0", "0000:20:00.0")
+SOURCE = {"workload": "workload.json", "starter": "starter.py", "prior_run": "run.json",
+          "prepared_baseline": "baseline/candidate.json"}
 
 
 def retained(directory, tasks):
     rows, missing = [], {}
     for task in tasks:
-        runs = sorted(p for p in Path(directory).glob(task + "-00[0-9]") if p.is_dir())
-        if not runs:
-            missing[task] = "no retained C500 Run"
+        runs = sorted((p for p in Path(directory).glob(task + "-00[0-9]") if p.is_dir()), reverse=True)
+        # A Run that stopped before its specification was written leaves no run.json; the
+        # newest Run that did is the task's frozen source.
+        complete = [run for run in runs if all((run / name).is_file() for name in SOURCE.values())]
+        if not complete:
+            missing[task] = "no retained C500 Run has all of " + ", ".join(SOURCE.values())
             continue
-        run = runs[-1]
-        source = {"workload": run / "workload.json", "starter": run / "starter.py",
-                  "prior_run": run / "run.json", "prepared_baseline": run / "baseline/candidate.json"}
-        absent = [name for name, path in source.items() if not path.is_file()]
-        if absent:
-            missing[task] = f"{run.name} lacks {', '.join(absent)}"
-            continue
+        run = complete[0]
+        source = {name: run / relative for name, relative in SOURCE.items()}
         if json.loads(source["prior_run"].read_text())["execution"].get("target") != "xcore1000":
             missing[task] = f"{run.name} is not an xcore1000 Run"
             continue
