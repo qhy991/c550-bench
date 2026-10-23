@@ -242,6 +242,20 @@ class DevelopmentPreparation(unittest.TestCase):
             (evaluations/'profile/outcome.json').write_text(json.dumps(row))
             with patch('development.launch.ROOT',root):self.assertEqual(select_nominee()[1],'search')
 
+    def test_a_median_receipt_is_nominated(self):
+        """The C500 Compiler records pooled medians and no means; such a receipt still qualifies."""
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);evaluations=root/'campaign/evaluations'
+            for name,phase,latency in (('slow','search',0.004352),('fast','search',0.004096),('profile','attribution',None)):
+                path=evaluations/name;path.mkdir(parents=True)
+                row={'phase':phase,'status':'accepted','candidate_path':'campaign/candidates/'+('x' if name!='slow' else 'y')+'.py',
+                     'route':'cake','source_sha256':'a'*64 if name!='slow' else 'b'*64,'candidate_sha256':'c'*64 if name!='slow' else 'd'*64}
+                if latency is not None:
+                    row['timing']={'pooled_medians_ms':{'candidate':latency,'baseline':0.004352},
+                                   'pooled_median_ms':latency,'measurement_quality_passed':True}
+                (path/'outcome.json').write_text(json.dumps(row))
+            with patch('development.launch.ROOT',root):self.assertEqual(select_nominee()[1],'fast')
+
     def test_release_is_scoped_to_this_task_not_the_shared_device(self):
         with tempfile.TemporaryDirectory() as directory:
             base=Path(directory).resolve();root=base/'task';other=base/'other';proc=base/'proc'

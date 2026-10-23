@@ -70,9 +70,11 @@ def select_nominee():
     for p in (ROOT/'campaign/evaluations').glob('*/outcome.json'):
         row=read(p);timing=row.get('timing') or {}
         key=(row.get('candidate_path'),row.get('route'),row.get('source_sha256'),row.get('candidate_sha256'))
-        mean=(timing.get('pooled_means_ms') or {}).get('candidate')
-        if row.get('phase')=='search' and row.get('status')=='accepted' and timing.get('measurement_quality_passed') is True and isinstance(mean,(int,float)) and key in profiles:
-            rows.append((mean,p.parent.name,row,profiles[key]))
+        # The receipt names its own statistic; the C500 Compiler records medians only.
+        statistic=timing.get('statistic','median')
+        latency=(timing.get(f'pooled_{statistic}s_ms') or {}).get('candidate')
+        if row.get('phase')=='search' and row.get('status')=='accepted' and timing.get('measurement_quality_passed') is True and isinstance(latency,(int,float)) and key in profiles:
+            rows.append((latency,p.parent.name,row,profiles[key]))
     return min(rows,key=lambda x:x[0]) if rows else None
 
 def mentions_root(command,needle):

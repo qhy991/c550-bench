@@ -212,7 +212,19 @@ def evaluate(root: Path, candidate: Path, identity: str, phase: str, route: str)
         submission=CandidateSubmission.seal(environment.media_type,
             candidate_bytes if candidate_path.suffix=='.json' else canonical_json_bytes(payload))
     else:
-        native_plan(root,candidate_path,binding)
+        try:
+            native_plan(root,candidate_path,binding)
+        except (ValueError,OSError) as error:
+            # The plan is the author's own input: answer it as a rejected candidate the
+            # author can correct, not as a controller fault that closes the search.
+            feedback={'stage':'native_plan','error':str(error),'code':'NATIVE_PLAN_INVALID',
+                      'expected_fields':['schema_version','route','task','target','cake_candidate',
+                                         'missing_commitment','same_contract','shares_task_deadline']}
+            write_new(output/'build.json',{'route':route,'disposition':'rejected','feedback':feedback})
+            result={'status':'rejected','route':route,'phase':phase,'feedback':feedback,
+                'source_sha256':source_sha256,'candidate_sha256':None,
+                'candidate_path':candidate_relative,'completed_at_epoch':time.time()}
+            write_new(output/'outcome.json',result);return result
         starter=frontend.read_schedule(root/'campaign/candidates/starter.py').document
         lowered=compiler.lower(compiler.assess(starter))
         environment=NativeTritonEnvironment(builder,toolchain_requirements=lowered.toolchain_requirements,
