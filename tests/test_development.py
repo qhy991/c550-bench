@@ -236,7 +236,7 @@ class DevelopmentPreparation(unittest.TestCase):
                 (path/'outcome.json').write_text(json.dumps({'phase':phase,'status':'accepted',
                     'candidate_path':'campaign/candidates/x.py','route':'cake',
                     'source_sha256':source,'candidate_sha256':'c'*64,
-                    'timing':{'pooled_means_ms':{'candidate':1.0},'measurement_quality_passed':True}}))
+                    'timing':{'statistic':'mean','pooled_means_ms':{'candidate':1.0},'measurement_quality_passed':True}}))
             with patch('development.launch.ROOT',root):self.assertIsNone(select_nominee())
             row=json.loads((evaluations/'profile/outcome.json').read_text());row['source_sha256']='a'*64
             (evaluations/'profile/outcome.json').write_text(json.dumps(row))
