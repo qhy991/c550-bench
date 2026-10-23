@@ -89,6 +89,15 @@ class DevelopmentPreparation(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,'intact task denominator'):
                 validate(plan,ROOT)
 
+    def test_freeze_writes_pci_ids_the_maca_lease_accepts(self):
+        """The MACA lease takes domain:bus:device; a trailing .0 function refused every task."""
+        import importlib.util, re
+        spec = importlib.util.spec_from_file_location('freeze', ROOT/'scripts/freeze_development.py')
+        freeze = importlib.util.module_from_spec(spec); spec.loader.exec_module(freeze)
+        self.assertEqual(len(freeze.PCIS), 4)
+        for pci in freeze.PCIS:
+            self.assertRegex(pci, r'^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}$')
+
     def test_runs_outside_home_are_refused(self):
         """hmz leaves /tmp and /var/tmp writable, so a Run there could write a sibling."""
         with tempfile.TemporaryDirectory() as d:

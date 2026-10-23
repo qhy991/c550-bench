@@ -12,7 +12,7 @@ import re
 
 ROOT = Path(__file__).resolve().parents[1]
 HOST = "metax-infini"
-PCIS = ("0000:09:00.0", "0000:0e:00.0", "0000:1c:00.0", "0000:20:00.0")
+PCIS = ("0000:09:00", "0000:0e:00", "0000:1c:00", "0000:20:00")
 SOURCE = {"workload": "workload.json", "starter": "starter.py", "prior_run": "run.json",
           "prepared_baseline": "baseline/candidate.json"}
 
