@@ -13,6 +13,7 @@ def read(path): return json.loads(path.read_text())
 # scripts/install_hmz_maca.sh builds this copy of hmz 0.2.1: its stock fence grants
 # /dev/nvidia*, /dev/dri and /dev/kfd but not MetaX's /dev/mxcd.
 HMZ=Path.home()/'.cake-c500-hmz/bin/hmz'
+MACA_ENVIRONMENT={'LD_LIBRARY_PATH':'/opt/maca/lib:/opt/maca/mxgpu_llvm/lib','MACA_PATH':'/opt/maca'}
 
 def hmz_entry():
     if not os.access(HMZ,os.X_OK):raise RuntimeError('run-private hmz is unavailable: '+str(HMZ))
@@ -29,6 +30,9 @@ def provider_environment(binding):
     # Code's default two-minute Bash limit.
     env['TRITON_CACHE_DIR']=str(ROOT/'.local/triton-cache')
     env['BASH_DEFAULT_TIMEOUT_MS']=env['BASH_MAX_TIMEOUT_MS']=str(1800*1000)
+    # The broker worker inherits this environment, and MACA torch cannot import without
+    # its libraries on the path (OSError: libmxomp.so); run-007's launcher exported both.
+    env.update(MACA_ENVIRONMENT)
     return entry,env
 
 def run_process(command,env,timeout,log):

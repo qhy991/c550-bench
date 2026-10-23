@@ -98,6 +98,18 @@ class DevelopmentPreparation(unittest.TestCase):
         for pci in freeze.PCIS:
             self.assertRegex(pci, r'^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}$')
 
+    def test_the_owner_environment_carries_the_maca_libraries(self):
+        """Without them the broker worker dies importing torch and every evaluation is lost."""
+        from unittest import mock
+        import development.launch as launch
+        binding={'home':str(Path.home())}
+        with mock.patch.object(launch,'ROOT',Path.home()/'run'), \
+             mock.patch.object(launch,'hmz_entry',return_value=Path('/x/hmz')), \
+             mock.patch.dict(launch.os.environ,{},clear=True):
+            _,env=launch.provider_environment(binding)
+        self.assertEqual(env['LD_LIBRARY_PATH'],'/opt/maca/lib:/opt/maca/mxgpu_llvm/lib')
+        self.assertEqual(env['MACA_PATH'],'/opt/maca')
+
     def test_runs_outside_home_are_refused(self):
         """hmz leaves /tmp and /var/tmp writable, so a Run there could write a sibling."""
         with tempfile.TemporaryDirectory() as d:
