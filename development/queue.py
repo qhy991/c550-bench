@@ -1,7 +1,7 @@
 """Finite at-most-once HMZ task sequencing for one prepared C500 host."""
 from __future__ import annotations
 from collections import Counter
-import argparse,fcntl,json,os,subprocess,time
+import argparse,fcntl,json,os,shlex,subprocess,time
 from pathlib import Path
 
 
@@ -56,15 +56,19 @@ class HostLauncher:
     """C500 runs each task's controller on the host under the MetaX render group.
 
     The author is fenced by hmz, and device work goes through the existing MACA broker,
-    so there is no per-task container. The controller still runs from the pinned launcher
-    checkout in isolated-import mode; controller_entry refuses one that is writable.
+    so there is no per-task container. controller_entry refuses a writable launcher
+    checkout; bubblewrap binds that checkout read-only over itself, as the C550
+    container mount did, and leaves the rest of the host as it is.
     """
     def __init__(self,python):
         self.python=python
     def start(self,run,claim,state):
-        entry=(Path(run['root'])/'.deps/launcher/development/controller_entry.py').resolve(strict=True)
+        launcher=(Path(run['root'])/'.deps/launcher').resolve(strict=True)
+        entry=launcher/'development/controller_entry.py'
         root=Path(run['root'])
-        command=['/usr/bin/sg','render','-c',' '.join(['cd',str(root),'&&','exec',self.python,'-I',str(entry),'--root',str(root),'launch'])]
+        inner=['/usr/bin/bwrap','--dev-bind','/','/','--ro-bind',str(launcher),str(launcher),
+               '--chdir',str(root),self.python,'-I',str(entry),'--root',str(root),'launch']
+        command=['/usr/bin/sg','render','-c',' '.join(shlex.quote(part) for part in inner)]
         write_new(state/'commands'/(run['task']+'.json'),command)
         out=(state/'logs'/(run['task']+'.stdout')).open('x');err=(state/'logs'/(run['task']+'.stderr')).open('x')
         process=subprocess.Popen(command,stdout=out,stderr=err,start_new_session=True)
