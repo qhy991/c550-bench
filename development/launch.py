@@ -10,21 +10,25 @@ def write_new(path,value):
     with path.open('x') as f: json.dump(value,f,indent=2,sort_keys=True);f.write('\n')
 def read(path): return json.loads(path.read_text())
 
+# scripts/install_hmz_maca.sh builds this copy of hmz 0.2.1: its stock fence grants
+# /dev/nvidia*, /dev/dri and /dev/kfd but not MetaX's /dev/mxcd.
+HMZ=Path.home()/'.cake-c500-hmz/bin/hmz'
+
 def hmz_entry():
-    entry=Path(sys.executable).absolute().parent/'hmz'
-    if not entry.is_file() or not os.access(entry,os.X_OK):raise RuntimeError('hmz is unavailable beside owner Python')
-    subprocess.run([str(entry),'--help'],check=True,timeout=30,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
-    return entry
+    if not os.access(HMZ,os.X_OK):raise RuntimeError('run-private hmz is unavailable: '+str(HMZ))
+    subprocess.run([str(HMZ),'--help'],check=True,timeout=30,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+    return HMZ
 
 def provider_environment(binding):
-    env=dict(os.environ,HOME=binding['home']);entry=hmz_entry();bin_dir=str(entry.parent)
-    env['PATH']=os.pathsep.join((bin_dir,'/provider-native',env.get('PATH','')))
-    credential=Path('/provider-auth/credential').read_text().strip()
-    if not credential:raise RuntimeError('provider credential is empty')
-    env.update(ANTHROPIC_AUTH_TOKEN=credential,ANTHROPIC_API_KEY=credential,
-               ANTHROPIC_BASE_URL='https://cloud.infini-ai.com/maas',ANTHROPIC_MODEL='glm-5.3',
-               ANTHROPIC_DEFAULT_OPUS_MODEL='glm-5.3',ANTHROPIC_DEFAULT_SONNET_MODEL='glm-5.3',
-               ANTHROPIC_DEFAULT_HAIKU_MODEL='glm-5.3')
+    """The C500 account's own Claude settings reach hmz through HOME; no key is copied."""
+    if not ROOT.is_relative_to(binding['home']):
+        raise RuntimeError('hmz fences writes only for a Run under the home directory: '+str(ROOT))
+    env=dict(os.environ,HOME=binding['home']);entry=hmz_entry()
+    env['PATH']=os.pathsep.join((str(entry.parent),env.get('PATH','')))
+    # ~/.triton is read-only inside the fence, and a full evaluation outlasts Claude
+    # Code's default two-minute Bash limit.
+    env['TRITON_CACHE_DIR']=str(ROOT/'.local/triton-cache')
+    env['BASH_DEFAULT_TIMEOUT_MS']=env['BASH_MAX_TIMEOUT_MS']=str(1800*1000)
     return entry,env
 
 def run_process(command,env,timeout,log):

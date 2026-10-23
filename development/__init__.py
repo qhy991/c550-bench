@@ -1,1 +1,1 @@
-"""Frozen external-HMZ development preparation for MetaX C550."""
+"""Frozen external-HMZ development preparation for MetaX C500."""

@@ -96,7 +96,7 @@ def prepare(root: Path) -> dict:
     from tools.launch_task import _admit_stack,_prepare_baseline,_runtime_config
     workload_path=root/'campaign/original-workload.json';starter=root/'campaign/candidates/starter.py'
     workload=load_workload(workload_path)
-    if workload.target!='xcore1002': raise ValueError('development Workload target differs')
+    if workload.target!='xcore1000': raise ValueError('development Workload target differs')
     prior=json.loads((root/'campaign/prior-run.json').read_text())
     protocol=prior['evaluation_protocol'];authoring=json.loads(json.dumps(prior['authoring']))
     preparation=root/'campaign/baseline-preparation';preparation.mkdir(exist_ok=False)
@@ -150,7 +150,7 @@ def native_plan(root: Path, candidate: Path, binding: dict) -> dict:
         raise ValueError('native candidate must live under campaign/native-engineering/<id>')
     plan=json.loads((folder/'plan.json').read_text())
     expected={'schema_version':1,'route':'native_triton','task':binding['task'],
-              'target':'xcore1002','cake_candidate':plan.get('cake_candidate'),
+              'target':'xcore1000','cake_candidate':plan.get('cake_candidate'),
               'missing_commitment':plan.get('missing_commitment'),
               'same_contract':True,'shares_task_deadline':True}
     if plan!=expected or not isinstance(plan['cake_candidate'],str) or not plan['cake_candidate'] \

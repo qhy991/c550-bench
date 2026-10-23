@@ -1,4 +1,4 @@
-"""Finite at-most-once HMZ task sequencing for one prepared C550 host."""
+"""Finite at-most-once HMZ task sequencing for one prepared C500 host."""
 from __future__ import annotations
 from collections import Counter
 import argparse,fcntl,json,os,subprocess,time
@@ -52,11 +52,33 @@ class ContainerLauncher:
                 'release_verified':bool(document and document.get('device_release_verified') is True)}
 
 
+class HostLauncher:
+    """C500 runs each task's controller on the host under the MetaX render group.
+
+    The author is fenced by hmz, and device work goes through the existing MACA broker,
+    so there is no per-task container. The controller still runs from the pinned launcher
+    checkout in isolated-import mode; controller_entry refuses one that is writable.
+    """
+    def __init__(self,python):
+        self.python=python
+    def start(self,run,claim,state):
+        entry=(Path(run['root'])/'.deps/launcher/development/controller_entry.py').resolve(strict=True)
+        root=Path(run['root'])
+        command=['/usr/bin/sg','render','-c',' '.join(['cd',str(root),'&&','exec',self.python,'-I',str(entry),'--root',str(root),'launch'])]
+        write_new(state/'commands'/(run['task']+'.json'),command)
+        out=(state/'logs'/(run['task']+'.stdout')).open('x');err=(state/'logs'/(run['task']+'.stderr')).open('x')
+        process=subprocess.Popen(command,stdout=out,stderr=err,start_new_session=True)
+        write_new(state/'owners'/(run['task']+'.json'),{'pid':process.pid,
+            'start_ticks':process_start_ticks(process.pid)})
+        return process
+    terminal=ContainerLauncher.terminal
+
+
 class DevelopmentQueue:
     def __init__(self,allocation,state,launcher,sleeper=time.sleep):
         self.allocation=Path(allocation).resolve(strict=True);self.state=Path(state)
         self.launcher=launcher;self.sleeper=sleeper;self.document=read(self.allocation)
-        if self.document.get('kind')!='c550_hmz_development_allocation':raise ValueError('unsupported allocation')
+        if self.document.get('kind')!='c500_hmz_development_allocation':raise ValueError('unsupported allocation')
         tasks=set()
         for run in self.document.get('runs',[]):
             root=Path(run.get('root',''))
@@ -117,7 +139,7 @@ def reconcile(allocation,state):
     """Seal every assignment after a dead owner, without starting or retrying work."""
     allocation=Path(allocation).resolve(strict=True);state=Path(state).resolve(strict=True)
     document=read(allocation);launch=read(state/'LAUNCH.json')
-    if document.get('kind')!='c550_hmz_development_allocation':raise ValueError('unsupported allocation')
+    if document.get('kind')!='c500_hmz_development_allocation':raise ValueError('unsupported allocation')
     if (state/'DONE.json').exists():raise FileExistsError('queue is already terminal')
     owner={'pid':launch.get('owner_pid'),'start_ticks':launch.get('owner_start_ticks')}
     if process_alive(owner):raise ValueError('queue owner is still live')
@@ -149,8 +171,12 @@ def reconcile(allocation,state):
 def main():
     p=argparse.ArgumentParser();p.add_argument('--allocation',type=Path,required=True);p.add_argument('--state',type=Path,required=True)
     p.add_argument('--namespace');p.add_argument('--container');p.add_argument('--python');p.add_argument('--reconcile',action='store_true')
+    p.add_argument('--host',action='store_true',help='run each controller on this host (C500)')
     a=p.parse_args()
     if a.reconcile:result=reconcile(a.allocation,a.state)
+    elif a.host:
+        if not a.python:p.error('--host requires --python')
+        result=DevelopmentQueue(a.allocation,a.state,HostLauncher(a.python)).run()
     else:
         if not all((a.namespace,a.container,a.python)):p.error('launch requires --namespace, --container and --python')
         result=DevelopmentQueue(a.allocation,a.state,

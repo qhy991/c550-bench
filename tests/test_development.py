@@ -8,7 +8,7 @@ import time
 from dataclasses import dataclass
 from unittest.mock import patch
 
-from development.binding import SKILLS, TARGET, validate
+from development.binding import HOST, SKILLS, TARGET, validate
 from development.prepare import prepare
 from development.runtime import evaluation_purpose, load_local_baseline, native_plan, parse_cake_submission
 from development.queue import DevelopmentQueue, process_alive, reconcile
@@ -47,30 +47,30 @@ class DevelopmentPreparation(unittest.TestCase):
             'skills/evolve/SKILL.md':'# evolve\n','skills/metax-c550-hardware-exploration/SKILL.md':'# metax\n'})
         source=root/'source';source.mkdir();
         for name,text in {'workload.json':'{}','starter.py':'# starter\n','run.json':'{}','baseline.json':'{}'}.items():(source/name).write_text(text)
-        devices=[{'physical_device':i,'runtime_device':i,'expected_pci':f'0000:{i:02x}:00'} for i in range(8)]
-        hosts={h:{'compiler_root':str(compiler),'adapter_root':str(adapter),'home':str(root/(h+'-home')),
-                  'owner_root':str(root/(h+'-runs')),'devices':devices} for h in ('c550-1','c550-2')}
+        devices=[{'physical_device':i,'runtime_device':i,'expected_pci':f'0000:{i:02x}:00'} for i in range(4)]
+        hosts={h:{'compiler_root':str(compiler),'adapter_root':str(adapter),'home':str(root/'home'),
+                  'owner_root':str(root/'home'/'runs'),'devices':devices} for h in (HOST,)}
         assignments=[]
         for i,task in enumerate(TASKS):
-            host='c550-1' if i==0 else 'c550-2'
+            host=HOST
             assignments.append({'task':task,'host':host,'root':str(Path(hosts[host]['owner_root'])/task),
-                'device':devices[i%8],'source':{'workload':str(source/'workload.json'),'starter':str(source/'starter.py'),
+                'device':devices[i%4],'source':{'workload':str(source/'workload.json'),'starter':str(source/'starter.py'),
                     'prior_run':str(source/'run.json'),'prepared_baseline':str(source/'baseline.json')}})
-        plan={'schema_version':1,'kind':'c550_hmz_development_round','target':TARGET,
+        plan={'schema_version':1,'kind':'c500_hmz_development_round','target':TARGET,
               'compiler_commit':compiler_commit,'adapter_commit':adapter_commit,
               'controls':{'model':'glm-5.3','reasoning_effort':'high','wall_time_seconds':10800,
                 'search_seconds':9720,'confirmation_seconds':1080,'tokens':'accounting_only',
-                'authors_per_device':2,'reference_access':'known_kernel_reproduction'},
+                'authors_per_device':1,'reference_access':'known_kernel_reproduction'},
               'skills':SKILLS,'hosts':hosts,'assignments':assignments,
-              'unsupported':[{'task':'tinygemm','status':'unsupported_target','target':TARGET}]}
+              'unsupported':json.loads((ROOT/'development/tasks.json').read_text())['unsupported']}
         path=root/'plan.json';path.write_text(json.dumps(plan));return root,path,plan
 
     def test_prepare_exposes_both_skills_hmz_catalog_and_route_split(self):
         with tempfile.TemporaryDirectory() as d:
             root,path,plan=self.inputs(d);output=root/'allocation.json'
-            allocation=prepare(path,'c550-1',output,repository=ROOT)
+            allocation=prepare(path,HOST,output,repository=ROOT,tasks=frozenset({TASKS[0]}))
             self.assertEqual(len(allocation['runs']),1)
-            self.assertEqual(allocation['runs'][0]['home'],plan['hosts']['c550-1']['home'])
+            self.assertEqual(allocation['runs'][0]['home'],plan['hosts'][HOST]['home'])
             run=Path(allocation['runs'][0]['root'])
             task=(run/'campaign/TASK.md').read_text()
             self.assertIn('$evolve',task);self.assertIn('$metax-c550-hardware-exploration',task)
@@ -82,29 +82,37 @@ class DevelopmentPreparation(unittest.TestCase):
             self.assertFalse((run/'campaign/intake.json').exists())
             self.assertEqual(git(run,'status','--porcelain'),'')
 
-    def test_plan_requires_all_54_and_exact_controls(self):
+    def test_plan_requires_the_whole_denominator_and_exact_controls(self):
         with tempfile.TemporaryDirectory() as d:
             _,_,plan=self.inputs(d)
             plan['assignments'].pop()
-            with self.assertRaisesRegex(ValueError,'54-task'):
+            with self.assertRaisesRegex(ValueError,'intact task denominator'):
+                validate(plan,ROOT)
+
+    def test_runs_outside_home_are_refused(self):
+        """hmz leaves /tmp and /var/tmp writable, so a Run there could write a sibling."""
+        with tempfile.TemporaryDirectory() as d:
+            _,_,plan=self.inputs(d)
+            plan['hosts'][HOST]['owner_root']='/var/tmp/cake-c500-dev'
+            with self.assertRaisesRegex(ValueError,'home directory'):
                 validate(plan,ROOT)
 
     def test_missing_skill_stops_before_workspace_creation(self):
         with tempfile.TemporaryDirectory() as d:
             root,path,plan=self.inputs(d)
-            skill=Path(plan['hosts']['c550-1']['compiler_root'])/'skills/evolve/SKILL.md'
+            skill=Path(plan['hosts'][HOST]['compiler_root'])/'skills/evolve/SKILL.md'
             skill.unlink();subprocess.run(['git','-C',str(skill.parents[2]),'add','-u'],check=True)
             subprocess.run(['git','-C',str(skill.parents[2]),'commit','-qm','remove'],check=True)
             plan['compiler_commit']=git(skill.parents[2],'rev-parse','HEAD');path.write_text(json.dumps(plan))
             with self.assertRaisesRegex(ValueError,'skill'):
-                prepare(path,'c550-1',root/'allocation.json',repository=ROOT)
+                prepare(path,HOST,root/'allocation.json',repository=ROOT)
             self.assertFalse(Path(plan['assignments'][0]['root']).exists())
 
     def test_successor_excludes_claimed_opportunities_even_before_intake(self):
         with tempfile.TemporaryDirectory() as directory:
             root,path,plan=self.inputs(directory);state=root/'previous-state';(state/'claims').mkdir(parents=True)
             for name in ('commands','owners','logs','terminals'):(state/name).mkdir()
-            rows=[r for r in plan['assignments'] if r['host']=='c550-2'];runs=[]
+            rows=[r for r in plan['assignments'] if r['host']==HOST];runs=[]
             for row in rows:
                 old=root/'previous-runs'/row['task'];old.parent.mkdir(exist_ok=True)
                 binding={'task':row['task'],'root':str(old),'source_provenance':row['source'],
@@ -112,40 +120,41 @@ class DevelopmentPreparation(unittest.TestCase):
                 commit=repository(old,{'campaign/development-binding.json':json.dumps(binding)})
                 runs.append({**binding,'prepared_commit':commit})
             previous=root/'previous.json';previous.write_text(json.dumps({
-                'kind':'c550_hmz_development_allocation','host':'c550-2',
+                'kind':'c500_hmz_development_allocation','host':HOST,
                 'compiler':plan['compiler_commit'],'runs':runs}))
             (state/'LAUNCH.json').write_text(json.dumps({'allocation':str(previous),
                 'owner_pid':99999999,'owner_start_ticks':'0'}))
             consumed=rows[0]['task']
             (state/'claims'/f'{consumed}.json').write_text(json.dumps({
                 'task':consumed,'author_opportunity_consumed':True}))
-            selected,excluded=unclaimed(path,'c550-2',previous,state,ROOT)
+            selected,excluded=unclaimed(path,HOST,previous,state,ROOT)
             self.assertEqual(excluded,frozenset({consumed}))
             self.assertNotIn(consumed,selected)
             (state/'claims'/f'{consumed}.json').unlink()
             (state/'commands'/f'{consumed}.json').write_text('[]')
-            selected,excluded=unclaimed(path,'c550-2',previous,state,ROOT)
+            selected,excluded=unclaimed(path,HOST,previous,state,ROOT)
             self.assertNotIn(consumed,selected)
             second=rows[1]['task'];old_binding=Path(runs[1]['root'])/'campaign/development-binding.json'
             saved=old_binding.read_text();old_binding.write_text('{}')
             with self.assertRaisesRegex(ValueError,'binding'):
-                unclaimed(path,'c550-2',previous,state,ROOT)
+                unclaimed(path,HOST,previous,state,ROOT)
             old_binding.write_text(saved)
             terminal=state/'terminals'/f'{second}.json'
             terminal.write_text(json.dumps({'task':'foreign','error':'unstarted_owner_exit',
                 'done':None,'exit_code':None,'release_verified':False,'reconciled_after_owner_exit':True}))
             with self.assertRaisesRegex(ValueError,'terminal task'):
-                unclaimed(path,'c550-2',previous,state,ROOT)
+                unclaimed(path,HOST,previous,state,ROOT)
             terminal.unlink()
             original_route=rows[1]['device']
-            rows[1]['device']=plan['hosts']['c550-2']['devices'][7]
+            rows[1]['device']=plan['hosts'][HOST]['devices'][(rows[1]['device']['physical_device']+1)%4]
             path.write_text(json.dumps(plan))
             with self.assertRaisesRegex(ValueError,'device route'):
-                unclaimed(path,'c550-2',previous,state,ROOT)
+                unclaimed(path,HOST,previous,state,ROOT)
             rows[1]['device']=original_route;path.write_text(json.dumps(plan))
-            allocation=prepare(path,'c550-2',root/'successor.json',repository=ROOT,tasks=selected)
+            allocation=prepare(path,HOST,root/'successor.json',repository=ROOT,tasks=selected)
             self.assertEqual({r['task'] for r in allocation['runs']},set(selected))
-            self.assertFalse(Path(plan['assignments'][1]['root']).exists())
+            consumed_root=next(row['root'] for row in plan['assignments'] if row['task']==consumed)
+            self.assertFalse(Path(consumed_root).exists())
 
     def test_missing_claim_custody_refuses_successor_selection(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -153,7 +162,7 @@ class DevelopmentPreparation(unittest.TestCase):
             previous=root/'previous.json';previous.write_text('{}')
             (state/'LAUNCH.json').write_text('{}')
             with self.assertRaisesRegex(ValueError,'custody'):
-                unclaimed(path,'c550-1',previous,state,ROOT)
+                unclaimed(path,HOST,previous,state,ROOT)
 
     def test_native_route_requires_a_retained_own_cake_candidate_and_exact_split(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -161,7 +170,7 @@ class DevelopmentPreparation(unittest.TestCase):
             native=root/'campaign/native-engineering/trial';native.mkdir(parents=True)
             cake.parent.mkdir(parents=True);cake.write_text('# retained Cake hypothesis\n')
             candidate=native/'candidate.json';candidate.write_text('{}')
-            plan={'schema_version':1,'route':'native_triton','task':'rmsnorm','target':'xcore1002',
+            plan={'schema_version':1,'route':'native_triton','task':'rmsnorm','target':'xcore1000',
                   'cake_candidate':'campaign/candidates/cake.py',
                   'missing_commitment':'Cake cannot express the measured instruction choice',
                   'same_contract':True,'shares_task_deadline':True}
@@ -251,7 +260,7 @@ class DevelopmentQueueTests(unittest.TestCase):
                 commit=repository(path,{'campaign/development-binding.json':json.dumps(binding)})
                 runs.append({**binding,'prepared_commit':commit})
             allocation=root/'allocation.json';allocation.write_text(json.dumps({
-                'kind':'c550_hmz_development_allocation','runs':runs}))
+                'kind':'c500_hmz_development_allocation','runs':runs}))
             launcher=_QueueLauncher();result=DevelopmentQueue(
                 allocation,root/'state',launcher,sleeper=lambda _:None).run()
             self.assertEqual(result,{'assigned':3,'started':3,'terminal':3,'blocked_devices':[]})
@@ -268,7 +277,7 @@ class DevelopmentQueueTests(unittest.TestCase):
                 commit=repository(path,{'campaign/development-binding.json':json.dumps(binding)})
                 runs.append({**binding,'prepared_commit':commit})
             allocation=root/'allocation.json';allocation.write_text(json.dumps({
-                'kind':'c550_hmz_development_allocation','runs':runs}))
+                'kind':'c500_hmz_development_allocation','runs':runs}))
             state=root/'state'
             for name in ('claims','commands','owners','logs','terminals'):(state/name).mkdir(parents=True)
             (state/'LAUNCH.json').write_text(json.dumps({'owner_pid':99999999,'owner_start_ticks':'0'}))
@@ -377,7 +386,7 @@ class DevelopmentReportTests(unittest.TestCase):
             for task in ('a','b'):
                 workspace=root/task;workspace.mkdir();runs.append({'task':task,'root':str(workspace)})
             allocation=root/'allocation.json';allocation.write_text(json.dumps({
-                'kind':'c550_hmz_development_allocation','host':'fixture',
+                'kind':'c500_hmz_development_allocation','host':'fixture',
                 'compiler':'fixed-compiler','adapter_commit':'fixed-launcher','runs':runs}))
             (state/'terminals/a.json').write_text(json.dumps({'task':'a','error':'unstarted_owner_exit',
                 'exit_code':None,'done':None,'release_verified':False,'reconciled_after_owner_exit':True}))
@@ -392,7 +401,7 @@ class DevelopmentReportTests(unittest.TestCase):
             root=Path(directory);state=root/'state';workspace=root/'task';workspace.mkdir()
             (state/'owners').mkdir(parents=True);(state/'terminals').mkdir()
             allocation=root/'allocation.json';allocation.write_text(json.dumps({
-                'kind':'c550_hmz_development_allocation','host':'fixture','compiler':'fixed',
+                'kind':'c500_hmz_development_allocation','host':'fixture','compiler':'fixed',
                 'adapter_commit':'fixed','runs':[{'task':'task','root':str(workspace)}]}))
             for parent in ('owners','terminals'):
                 path=state/parent/'task.json';path.write_text('{broken')
@@ -431,7 +440,7 @@ class DevelopmentReportTests(unittest.TestCase):
             (campaign/'deadline.json').write_text(json.dumps({'stop_at_epoch':100}))
             (state/'terminals/task.json').write_text(json.dumps({'task':'task','done':done,'exit_code':0,'release_verified':True}))
             allocation=root/'allocation.json';allocation.write_text(json.dumps({
-                'kind':'c550_hmz_development_allocation','host':'fixture','compiler':'fixed',
+                'kind':'c500_hmz_development_allocation','host':'fixture','compiler':'fixed',
                 'adapter_commit':'fixed','runs':[{'task':'task','root':str(workspace)}]}))
             def qualified():return development_report(allocation,state)['rows'][0]['confirmation']['qualified']
             self.assertTrue(qualified())
@@ -451,7 +460,7 @@ class DevelopmentReportTests(unittest.TestCase):
             {'task':task,'opportunity_consumed':False,'execution':'unstarted'} for task in TASKS[26:]]}
         result=compose_successor([predecessor],[successor])
         self.assertTrue(result['complete_denominator']);self.assertFalse(result['all_attempts_terminal'])
-        self.assertEqual(len(result['predecessor_unstarted_history']),28)
+        self.assertEqual(len(result['predecessor_unstarted_history']),len(TASKS)-26)
         self.assertEqual({s['launcher'] for s in result['source_strata']},{'old','new'})
         successor['rows'].append({'task':TASKS[0],'opportunity_consumed':True,'execution':'terminal'})
         with self.assertRaisesRegex(ValueError,'overlaps'):compose_successor([predecessor],[successor])
