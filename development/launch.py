@@ -78,7 +78,13 @@ def select_nominee():
         latency=(timing.get(f'pooled_{statistic}s_ms') or {}).get('candidate')
         if row.get('phase')=='search' and row.get('status')=='accepted' and timing.get('measurement_quality_passed') is True and isinstance(latency,(int,float)) and key in profiles:
             rows.append((latency,p.parent.name,row,profiles[key]))
-    return min(rows,key=lambda x:x[0]) if rows else None
+    # Only a candidate whose file still holds the evaluated source can be confirmed; an
+    # author may overwrite a path, and a tie on latency must not pick the stale receipt.
+    def on_disk(row):
+        path=ROOT/row['candidate_path']
+        return path.is_file() and sha256(path.read_bytes()).hexdigest()==row['source_sha256']
+    rows=[entry for entry in rows if on_disk(entry[2])]
+    return min(rows,key=lambda x:(x[0],x[1])) if rows else None
 
 def mentions_root(command,needle):
     start=0

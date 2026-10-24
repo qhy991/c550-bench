@@ -230,32 +230,57 @@ class DevelopmentPreparation(unittest.TestCase):
         self.assertEqual(evaluation_purpose('confirmation'),'confirmatory')
 
     def test_nomination_requires_one_candidate_identity(self):
+        from hashlib import sha256
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory);evaluations=root/'campaign/evaluations'
-            for name,phase,source in (('search','search','a'*64),('profile','attribution','b'*64)):
+            (root/'campaign/candidates').mkdir(parents=True);(root/'campaign/candidates/x.py').write_bytes(b'x')
+            digest=sha256(b'x').hexdigest()
+            for name,phase,source in (('search','search',digest),('profile','attribution','b'*64)):
                 path=evaluations/name;path.mkdir(parents=True)
                 (path/'outcome.json').write_text(json.dumps({'phase':phase,'status':'accepted',
                     'candidate_path':'campaign/candidates/x.py','route':'cake',
                     'source_sha256':source,'candidate_sha256':'c'*64,
                     'timing':{'statistic':'mean','pooled_means_ms':{'candidate':1.0},'measurement_quality_passed':True}}))
             with patch('development.launch.ROOT',root):self.assertIsNone(select_nominee())
-            row=json.loads((evaluations/'profile/outcome.json').read_text());row['source_sha256']='a'*64
+            row=json.loads((evaluations/'profile/outcome.json').read_text());row['source_sha256']=digest
             (evaluations/'profile/outcome.json').write_text(json.dumps(row))
             with patch('development.launch.ROOT',root):self.assertEqual(select_nominee()[1],'search')
 
     def test_a_median_receipt_is_nominated(self):
         """The C500 Compiler records pooled medians and no means; such a receipt still qualifies."""
+        from hashlib import sha256
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory);evaluations=root/'campaign/evaluations'
+            (root/'campaign/candidates').mkdir(parents=True)
+            (root/'campaign/candidates/x.py').write_bytes(b'x');(root/'campaign/candidates/y.py').write_bytes(b'y')
             for name,phase,latency in (('slow','search',0.004352),('fast','search',0.004096),('profile','attribution',None)):
                 path=evaluations/name;path.mkdir(parents=True)
                 row={'phase':phase,'status':'accepted','candidate_path':'campaign/candidates/'+('x' if name!='slow' else 'y')+'.py',
-                     'route':'cake','source_sha256':'a'*64 if name!='slow' else 'b'*64,'candidate_sha256':'c'*64 if name!='slow' else 'd'*64}
+                     'route':'cake','source_sha256':sha256(b'x' if name!='slow' else b'y').hexdigest(),'candidate_sha256':'c'*64 if name!='slow' else 'd'*64}
                 if latency is not None:
                     row['timing']={'pooled_medians_ms':{'candidate':latency,'baseline':0.004352},
                                    'pooled_median_ms':latency,'measurement_quality_passed':True}
                 (path/'outcome.json').write_text(json.dumps(row))
             with patch('development.launch.ROOT',root):self.assertEqual(select_nominee()[1],'fast')
+
+    def test_an_overwritten_candidate_is_not_nominated_over_its_current_source(self):
+        """attention_decode r1b: two sources at one path tied on latency; the stale one was picked."""
+        from hashlib import sha256
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);evaluations=root/'campaign/evaluations'
+            candidate=root/'campaign/candidates/q.py';candidate.parent.mkdir(parents=True)
+            old,new=b'old source',b'new source';candidate.write_bytes(new)
+            for name,phase,source in (('a-old-search','search',old),('a-old-profile','attribution',old),
+                                      ('z-new-search','search',new),('z-new-profile','attribution',new)):
+                path=evaluations/name;path.mkdir(parents=True)
+                row={'phase':phase,'status':'accepted','candidate_path':'campaign/candidates/q.py','route':'cake',
+                     'source_sha256':sha256(source).hexdigest(),'candidate_sha256':sha256(source+b'!').hexdigest()}
+                if phase=='search':
+                    row['timing']={'pooled_medians_ms':{'candidate':0.025856},'measurement_quality_passed':True}
+                (path/'outcome.json').write_text(json.dumps(row))
+            with patch('development.launch.ROOT',root):self.assertEqual(select_nominee()[1],'z-new-search')
+            candidate.unlink()
+            with patch('development.launch.ROOT',root):self.assertIsNone(select_nominee())
 
     def test_release_is_scoped_to_this_task_not_the_shared_device(self):
         with tempfile.TemporaryDirectory() as directory:
