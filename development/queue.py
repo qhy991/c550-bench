@@ -83,6 +83,11 @@ class DevelopmentQueue:
         self.allocation=Path(allocation).resolve(strict=True);self.state=Path(state)
         self.launcher=launcher;self.sleeper=sleeper;self.document=read(self.allocation)
         if self.document.get('kind')!='c500_hmz_development_allocation':raise ValueError('unsupported allocation')
+        # Authors per device comes from the frozen binding: C550 ran two, C500 runs one.
+        capacities={run.get('authors_per_device') for run in self.document['runs']}
+        if len(capacities)!=1 or not isinstance(next(iter(capacities)),int) or next(iter(capacities))<1:
+            raise ValueError('allocation must declare one positive authors_per_device')
+        self.capacity=capacities.pop()
         tasks=set()
         for run in self.document.get('runs',[]):
             root=Path(run.get('root',''))
@@ -101,7 +106,7 @@ class DevelopmentQueue:
             write_new(self.state/'LAUNCH.json',{'owner_pid':os.getpid(),'started_at_epoch':time.time(),
                 'owner_start_ticks':process_start_ticks(os.getpid()),
                 'allocation':str(self.allocation),'tasks':len(self.document['runs']),
-                'capacity_per_device':2,'automatic_retries':0})
+                'capacity_per_device':self.capacity,'automatic_retries':0})
             pending=list(self.document['runs']);active={};blocked=set()
             while pending or active:
                 for task,(run,handle) in list(active.items()):
@@ -116,7 +121,7 @@ class DevelopmentQueue:
                 counts=Counter(run['device']['physical_device'] for run,_ in active.values())
                 while True:
                     index=next((i for i,r in enumerate(pending)
-                        if r['device']['physical_device'] not in blocked and counts[r['device']['physical_device']]<2),None)
+                        if r['device']['physical_device'] not in blocked and counts[r['device']['physical_device']]<self.capacity),None)
                     if index is None:break
                     run=pending.pop(index);task=run['task'];claim={'task':task,
                         'physical_device':run['device']['physical_device'],'claimed_at_epoch':time.time(),

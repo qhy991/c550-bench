@@ -288,28 +288,31 @@ class DevelopmentQueueTests(unittest.TestCase):
         with patch('development.queue.process_start_ticks',return_value=None), \
              patch('development.queue.os.kill',side_effect=PermissionError('not observable')):
             self.assertTrue(process_alive({'pid':123,'start_ticks':'0'}))
-    def test_two_authors_share_one_device_without_duplicate_claims(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root=Path(directory);runs=[]
-            for task in ('a','b','c'):
-                path=root/task;binding={'task':task,'root':str(path),'device':{'physical_device':2}}
-                commit=repository(path,{'campaign/development-binding.json':json.dumps(binding)})
-                runs.append({**binding,'prepared_commit':commit})
-            allocation=root/'allocation.json';allocation.write_text(json.dumps({
-                'kind':'c500_hmz_development_allocation','runs':runs}))
-            launcher=_QueueLauncher();result=DevelopmentQueue(
-                allocation,root/'state',launcher,sleeper=lambda _:None).run()
-            self.assertEqual(result,{'assigned':3,'started':3,'terminal':3,'blocked_devices':[]})
-            self.assertEqual(launcher.maximum,2)
-            self.assertEqual(len(list((root/'state/claims').glob('*.json'))),3)
-            with self.assertRaises(FileExistsError):
-                DevelopmentQueue(allocation,root/'state',launcher).run()
+    def test_authors_per_device_comes_from_the_allocation(self):
+        """C550 ran two authors per card and C500 runs one; the queue obeys the binding."""
+        for capacity in (1,2):
+            with self.subTest(capacity=capacity), tempfile.TemporaryDirectory() as directory:
+                root=Path(directory);runs=[]
+                for task in ('a','b','c'):
+                    path=root/task;binding={'task':task,'root':str(path),'device':{'physical_device':2},
+                                            'authors_per_device':capacity}
+                    commit=repository(path,{'campaign/development-binding.json':json.dumps(binding)})
+                    runs.append({**binding,'prepared_commit':commit})
+                allocation=root/'allocation.json';allocation.write_text(json.dumps({
+                    'kind':'c500_hmz_development_allocation','runs':runs}))
+                launcher=_QueueLauncher();result=DevelopmentQueue(
+                    allocation,root/'state',launcher,sleeper=lambda _:None).run()
+                self.assertEqual(result,{'assigned':3,'started':3,'terminal':3,'blocked_devices':[]})
+                self.assertEqual(launcher.maximum,capacity)
+                self.assertEqual(len(list((root/'state/claims').glob('*.json'))),3)
+                with self.assertRaises(FileExistsError):
+                    DevelopmentQueue(allocation,root/'state',launcher).run()
 
     def test_dead_owner_reconciliation_seals_started_and_unstarted_tasks(self):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory);runs=[]
             for task in ('started','unstarted'):
-                path=root/task;binding={'task':task,'root':str(path),'device':{'physical_device':2}}
+                path=root/task;binding={'task':task,'root':str(path),'device':{'physical_device':2},'authors_per_device':1}
                 commit=repository(path,{'campaign/development-binding.json':json.dumps(binding)})
                 runs.append({**binding,'prepared_commit':commit})
             allocation=root/'allocation.json';allocation.write_text(json.dumps({
