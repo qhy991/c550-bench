@@ -30,6 +30,9 @@ def provider_environment(binding):
     # Code's default two-minute Bash limit.
     env['TRITON_CACHE_DIR']=str(ROOT/'.local/triton-cache')
     env['BASH_DEFAULT_TIMEOUT_MS']=env['BASH_MAX_TIMEOUT_MS']=str(1800*1000)
+    # glm-5.3 at high effort exceeded Claude Code's 32000-token reply cap in one
+    # cohort-010 turn and the single-session author ended 73 minutes early.
+    env['CLAUDE_CODE_MAX_OUTPUT_TOKENS']='64000'
     # The broker worker inherits this environment, and MACA torch cannot import without
     # its libraries on the path (OSError: libmxomp.so); run-007's launcher exported both.
     env.update(MACA_ENVIRONMENT)

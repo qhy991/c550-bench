@@ -109,6 +109,7 @@ class DevelopmentPreparation(unittest.TestCase):
             _,env=launch.provider_environment(binding)
         self.assertEqual(env['LD_LIBRARY_PATH'],'/opt/maca/lib:/opt/maca/mxgpu_llvm/lib')
         self.assertEqual(env['MACA_PATH'],'/opt/maca')
+        self.assertEqual(env['CLAUDE_CODE_MAX_OUTPUT_TOKENS'],'64000')
 
     def test_runs_outside_home_are_refused(self):
         """hmz leaves /tmp and /var/tmp writable, so a Run there could write a sibling."""
