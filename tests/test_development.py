@@ -75,6 +75,7 @@ class DevelopmentPreparation(unittest.TestCase):
             task=(run/'campaign/TASK.md').read_text()
             self.assertIn('$evolve',task);self.assertIn('$metax-c550-hardware-exploration',task)
             self.assertIn('separate',task.lower());self.assertIn('native Triton',task)
+            self.assertIn('a native probe is required',task);self.assertIn('campaign/gaps.jsonl',task)
             self.assertTrue((run/'campaign/compiler-api.json').is_file())
             self.assertEqual(json.loads((run/'campaign/prior-run.json').read_text()),{})
             self.assertTrue((run/'.deps/cake-ir/skills/evolve/SKILL.md').is_file())
@@ -533,6 +534,21 @@ class EvaluationSubmissionTests(unittest.TestCase):
                 with self.assertRaises(subprocess.TimeoutExpired):
                     execute(root,request,{},0.02,folder)
             self.assertIsNotNone(process[0].poll())
+
+
+class GapRecordTests(unittest.TestCase):
+    def test_gap_lines_are_projected_with_missing_fields_named(self):
+        from development.report import GAP_FIELDS, gap_records
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)/'gaps.jsonl'
+            self.assertEqual(gap_records(path),[])
+            full={key:'x' for key in GAP_FIELDS}
+            path.write_text(json.dumps(full)+'\n\n'+json.dumps({'hypothesis':'h'})+'\nnot json\n')
+            rows=gap_records(path)
+            self.assertEqual([row['line'] for row in rows],[1,3,4])
+            self.assertEqual(rows[0]['missing'],[])
+            self.assertIn('limitation',rows[1]['missing'])
+            self.assertIsNone(rows[2]['record']);self.assertTrue(rows[2]['missing'][0].startswith('unparseable'))
 
 
 class DevelopmentReportTests(unittest.TestCase):
