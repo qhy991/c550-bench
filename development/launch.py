@@ -160,7 +160,8 @@ def main(argv=None):
                 else:
                     path=ROOT/'campaign/evaluations/final-confirmation/outcome.json'
                     confirmation=read(path) if path.exists() else {'status':'missing','exit_code':code}
-                    if (confirmation.get('source_sha256')!=row['source_sha256']
+                    if (confirmation.get('phase')!='confirmation'
+                            or confirmation.get('source_sha256')!=row['source_sha256']
                             or confirmation.get('candidate_sha256')!=row['candidate_sha256']):
                         confirmation={'status':'candidate_identity_mismatch',
                             'search_id':search_id,'profile_id':profile_id,'observed':confirmation}

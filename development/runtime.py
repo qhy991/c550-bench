@@ -60,8 +60,21 @@ def build_timeout_feedback(error):
             and isinstance(error.__cause__, SupervisedProcessTimeout)):
         return None
     return {'stage':'build','code':'BUILD_TIMEOUT','error':str(error),
-            'repair':'reduce the compiled tile or unroll extent; this candidate exceeded the '
-                     'isolated build timeout before reaching the device'}
+            'repair':'the candidate or its toolchain exceeded the isolated build timeout before '
+                     'reaching the device; a smaller compiled tile or unroll extent compiles faster'}
+
+
+def reject_build_timeout(output, error, *, route, phase, source_sha256, candidate_sha256, candidate_path):
+    """Record a build timeout as a rejected outcome; None for any other fault."""
+    feedback=build_timeout_feedback(error)
+    if feedback is None:return None
+    if getattr(error,'artifact_payloads',None):retain(output/'build-artifacts',error.artifact_payloads)
+    write_new(output/'build.json',{'route':route,'disposition':'rejected','feedback':feedback})
+    result={'status':'rejected','route':route,'phase':phase,'feedback':feedback,
+            'source_sha256':source_sha256,'candidate_sha256':candidate_sha256,
+            'candidate_path':candidate_path,'completed_at_epoch':time.time()}
+    write_new(output/'outcome.json',result)
+    return result
 
 
 def retain(root: Path, payloads) -> None:
@@ -252,14 +265,10 @@ def evaluate(root: Path, candidate: Path, identity: str, phase: str, route: str)
     try:
         built=environment.build(submission)
     except Exception as error:
-        feedback=build_timeout_feedback(error)
-        if feedback is None:raise
-        if getattr(error,'artifact_payloads',None):retain(output/'build-artifacts',error.artifact_payloads)
-        write_new(output/'build.json',{'route':route,'disposition':'rejected','feedback':feedback})
-        result={'status':'rejected','route':route,'phase':phase,'feedback':feedback,
-                'source_sha256':source_sha256,'candidate_sha256':submission.sha256,
-                'candidate_path':candidate_relative,'completed_at_epoch':time.time()}
-        write_new(output/'outcome.json',result);return result
+        result=reject_build_timeout(output,error,route=route,phase=phase,source_sha256=source_sha256,
+            candidate_sha256=submission.sha256,candidate_path=candidate_relative)
+        if result is None:raise
+        return result
     write_new(output/'build.json',{'route':route,'disposition':built.disposition,
                                    'feedback':dict(built.feedback)})
     if built.artifact_payloads: retain(output/'build-artifacts',built.artifact_payloads)

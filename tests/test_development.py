@@ -388,6 +388,25 @@ class BuildTimeoutClassification(unittest.TestCase):
         self.assertEqual(feedback['code'], 'BUILD_TIMEOUT')
         self.assertEqual(feedback['stage'], 'build')
 
+    def test_a_build_timeout_is_recorded_create_only_with_its_streams(self):
+        from development.runtime import reject_build_timeout
+        error = self.raised(self.fault('harness_fault', 'supervised process timed out',
+                                       artifact_payloads={'toolchain_stderr': b'slow'}), self.timeout(b'', b''))
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory)/'e1'; output.mkdir()
+            result = reject_build_timeout(output, error, route='cake', phase='search', source_sha256='s',
+                                          candidate_sha256='c', candidate_path='campaign/candidates/x.py')
+            self.assertEqual(result['status'], 'rejected')
+            self.assertEqual(json.loads((output/'outcome.json').read_text()), result)
+            self.assertEqual(json.loads((output/'build.json').read_text())['feedback']['code'], 'BUILD_TIMEOUT')
+            self.assertEqual((output/'build-artifacts/toolchain_stderr').read_bytes(), b'slow')
+            with self.assertRaises(FileExistsError):
+                reject_build_timeout(output, error, route='cake', phase='search', source_sha256='s',
+                                     candidate_sha256='c', candidate_path='campaign/candidates/x.py')
+            self.assertIsNone(reject_build_timeout(Path(directory)/'e2', RuntimeError('x'), route='cake',
+                phase='search', source_sha256='s', candidate_sha256='c', candidate_path='x'))
+            self.assertFalse((Path(directory)/'e2').exists())
+
     def test_every_other_fault_still_closes_the_search(self):
         from development.runtime import build_timeout_feedback
         for error in (
@@ -436,6 +455,9 @@ class EvaluationSubmissionTests(unittest.TestCase):
             root=Path(directory);_,request=self.inputs(root)
             request['phase']='confirmation'
             with self.assertRaisesRegex(ValueError,'owns final'):validate_request(root,request)
+            request['phase']='search';request['id']='final-confirmation'
+            with self.assertRaisesRegex(ValueError,'final-confirmation id'):validate_request(root,request)
+            request['id']='attempt'
             request['phase']='search';request['candidate']=str(Path(__file__).resolve())
             with self.assertRaisesRegex(ValueError,'outside'):validate_request(root,request)
 
@@ -455,8 +477,10 @@ class EvaluationSubmissionTests(unittest.TestCase):
         """The author side never enters context(); printing must not import open_cake_ir."""
         import contextlib,io,sys
         from development import runtime
+        blocked={name:None for name in list(sys.modules) if name=='open_cake_ir' or name.startswith('open_cake_ir.')}
+        blocked['open_cake_ir']=None
         with tempfile.TemporaryDirectory() as directory, patch('development.submission.submit',
-                return_value={'status':'rejected','timing':None}), patch.dict(sys.modules,{'open_cake_ir':None}):
+                return_value={'status':'rejected','timing':None}), patch.dict(sys.modules,blocked):
             out=io.StringIO()
             with contextlib.redirect_stdout(out),patch('development.runtime.Path.cwd',return_value=Path(directory)):
                 runtime.main(['evaluate','--candidate','c.py','--id','x'])
