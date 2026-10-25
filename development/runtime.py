@@ -46,6 +46,24 @@ def parse_cake_submission(text, filename, parser, frontend_error):
             if 'program_id' in skeleton else {'python_source':text}),None
 
 
+def build_timeout_feedback(error):
+    """Feedback for a candidate whose isolated compile ran out of time, else None.
+
+    The build jail runs before any device admission, so a compile that exceeds its
+    timeout costs only that candidate (fib_gemm_n5120_k2048, r1b: a [256, 2048] tile).
+    Every other harness fault, and any timeout during device evaluation, still closes
+    the search, because there the device and release state are not known.
+    """
+    from open_cake_ir.lab.faults import RunProtocolFault
+    from open_cake_ir.lab.process import SupervisedProcessTimeout
+    if not (isinstance(error, RunProtocolFault) and error.protocol_adherence == 'harness_fault'
+            and isinstance(error.__cause__, SupervisedProcessTimeout)):
+        return None
+    return {'stage':'build','code':'BUILD_TIMEOUT','error':str(error),
+            'repair':'reduce the compiled tile or unroll extent; this candidate exceeded the '
+                     'isolated build timeout before reaching the device'}
+
+
 def retain(root: Path, payloads) -> None:
     root.mkdir(parents=True, exist_ok=False)
     for role, payload in payloads.items():
@@ -231,7 +249,17 @@ def evaluate(root: Path, candidate: Path, identity: str, phase: str, route: str)
             authority_document={'environment_kind':'native_triton','route_split_from':'cake'},
             workload=workload,case_id='primary')
         submission=CandidateSubmission.seal(environment.media_type,candidate_bytes)
-    built=environment.build(submission)
+    try:
+        built=environment.build(submission)
+    except Exception as error:
+        feedback=build_timeout_feedback(error)
+        if feedback is None:raise
+        if getattr(error,'artifact_payloads',None):retain(output/'build-artifacts',error.artifact_payloads)
+        write_new(output/'build.json',{'route':route,'disposition':'rejected','feedback':feedback})
+        result={'status':'rejected','route':route,'phase':phase,'feedback':feedback,
+                'source_sha256':source_sha256,'candidate_sha256':submission.sha256,
+                'candidate_path':candidate_relative,'completed_at_epoch':time.time()}
+        write_new(output/'outcome.json',result);return result
     write_new(output/'build.json',{'route':route,'disposition':built.disposition,
                                    'feedback':dict(built.feedback)})
     if built.artifact_payloads: retain(output/'build-artifacts',built.artifact_payloads)

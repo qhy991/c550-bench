@@ -355,6 +355,52 @@ class DevelopmentQueueTests(unittest.TestCase):
                              'unstarted_owner_exit')
 
 
+class BuildTimeoutClassification(unittest.TestCase):
+    """fib_gemm_n5120_k2048 (r1b): one slow compile closed the search with 7000 s left."""
+
+    def setUp(self):
+        try:
+            from open_cake_ir.lab.faults import RunProtocolFault
+            from open_cake_ir.lab.process import SupervisedProcessTimeout
+        except ImportError:
+            import sys
+            sys.path.insert(0, str(Path(__file__).resolve().parents[1]/'.deps/cake-ir/src'))
+            try:
+                from open_cake_ir.lab.faults import RunProtocolFault
+                from open_cake_ir.lab.process import SupervisedProcessTimeout
+            except ImportError:
+                self.skipTest('the pinned Compiler is not importable here')
+        self.fault, self.timeout = RunProtocolFault, SupervisedProcessTimeout
+
+    def raised(self, error, cause):
+        try:
+            try:
+                raise cause
+            except BaseException as inner:
+                raise error from inner
+        except BaseException as outer:
+            return outer
+
+    def test_an_isolated_build_timeout_is_the_candidates_refusal(self):
+        from development.runtime import build_timeout_feedback
+        error = self.raised(self.fault('harness_fault', 'supervised process timed out'), self.timeout(b'', b''))
+        feedback = build_timeout_feedback(error)
+        self.assertEqual(feedback['code'], 'BUILD_TIMEOUT')
+        self.assertEqual(feedback['stage'], 'build')
+
+    def test_every_other_fault_still_closes_the_search(self):
+        from development.runtime import build_timeout_feedback
+        for error in (
+            self.raised(self.fault('broker_fault', 'supervised process timed out'), self.timeout(b'', b'')),
+            self.raised(self.fault('harness_fault', 'isolated build unavailable'), OSError('no bwrap')),
+            self.fault('harness_fault', 'supervised process timed out'),
+            TimeoutError('supervised process timed out'),
+            RuntimeError('anything'),
+        ):
+            with self.subTest(error=repr(error)):
+                self.assertIsNone(build_timeout_feedback(error))
+
+
 class EvaluationSubmissionTests(unittest.TestCase):
     def inputs(self,root):
         folder=root/'campaign/evaluation-requests/attempt';folder.mkdir(parents=True)
