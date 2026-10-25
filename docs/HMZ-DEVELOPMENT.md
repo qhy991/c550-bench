@@ -26,8 +26,9 @@ same adapter's `inspect`, `transform` and `verify` commands.
 Cake is the default route. A retained expressibility or lowering diagnosis may open a
 separate native Triton engineering request inside the same task deadline. The native
 route keeps the Workload, exact target, oracle, numerical and measurement contracts and
-never replaces the Cake result. It needs its own source admission, device qualification,
-profile and confirmation. A generic tool failure is not an IR gap.
+never replaces the Cake result. It needs its own source admission, device qualification
+and search/attribution evidence; final confirmation nominates only a Cake candidate, so a
+native result stays engineering evidence beside it. A generic tool failure is not an IR gap.
 
 Preparation is not launch qualification. Before intake, the live successor must prove:
 

@@ -68,7 +68,9 @@ If a concrete optimization cannot be represented by Cake IR or cannot be realize
 assigned lowering, retain the smallest Cake candidate and the exact assessment, lowering
 or generated-source diagnosis first. A generic compile error is not proof of an IR gap.
 
-You may then create a **separate** native Triton engineering request under
+When such a limitation blocks a concrete hypothesis, a native probe is required within
+this task's remaining search budget; if the budget or infrastructure prevents it, retain
+the specific reason and evidence instead. Create a **separate** native Triton engineering request under
 `campaign/native-engineering/<id>/`. Its `plan.json` must name the blocked Cake candidate,
 the specific missing commitment, inherited material, exact `xcore1000` target, and the
 same Workload/oracle/numerical/measurement contract. The native candidate uses the
@@ -77,7 +79,8 @@ implementation. It shares this task's original 10,800-second deadline and 1,080-
 confirmation reserve.
 
 Never switch routes inside an evaluated candidate. Never replace a failed Cake result with
-a native result or report native timing as Cake timing. Report both routes and the reason
+a native result or report native timing as Cake timing. Final confirmation nominates only a Cake
+candidate; native results remain engineering evidence beside it. Report both routes and the reason
 for the split. A validated native mechanism can become a later Compiler/IR/lowering
 proposal only through a successor commit, its analyses, counterexamples, Corpus Gate and
 separate C500 qualification. `No promotion` is valid.
@@ -98,4 +101,16 @@ or alter the oracle, tolerance, target, evaluator, baseline or stopping rule.
 
 Keep concise hypotheses and outcomes in `campaign/JOURNAL.md`. Record reusable mechanisms,
 negative results, owning-layer leads and promotion disposition in `campaign/EVOLUTION.md`.
+
+Every task is also a Compiler study. Before the search cutoff, append one line per distinct
+Cake limitation you actually met to `campaign/gaps.jsonl` (one JSON object per line; create
+the file if absent): `hypothesis`, `operation`, `limitation` (the exact diagnostic, refusal
+code or generated-source/TTGIR/mcfatbin observation), `supported_transforms` (what you tried
+and why it could not express the mechanism), `native` (the native request id and its
+outcome, or the specific skip reason), `measured_effect` (observed timing or allocation
+deltas, or "none"), `proposed_owner` (Verifier, cost model, IR vocabulary,
+lowering, toolchain, host, Workload or baseline) and `evidence` (own `campaign/` paths).
+A task that met no real limitation appends nothing. Candidate misuse, resource waits and
+measurement noise are not limitations.
+
 The campaign owner decides the terminal result and verifies device release.

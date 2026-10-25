@@ -75,6 +75,7 @@ class DevelopmentPreparation(unittest.TestCase):
             task=(run/'campaign/TASK.md').read_text()
             self.assertIn('$evolve',task);self.assertIn('$metax-c550-hardware-exploration',task)
             self.assertIn('separate',task.lower());self.assertIn('native Triton',task)
+            self.assertIn('a native probe is required',task);self.assertIn('campaign/gaps.jsonl',task)
             self.assertTrue((run/'campaign/compiler-api.json').is_file())
             self.assertEqual(json.loads((run/'campaign/prior-run.json').read_text()),{})
             self.assertTrue((run/'.deps/cake-ir/skills/evolve/SKILL.md').is_file())
@@ -262,6 +263,24 @@ class DevelopmentPreparation(unittest.TestCase):
                                    'pooled_median_ms':latency,'measurement_quality_passed':True}
                 (path/'outcome.json').write_text(json.dumps(row))
             with patch('development.launch.ROOT',root):self.assertEqual(select_nominee()[1],'fast')
+
+    def test_a_faster_native_result_is_not_nominated_for_final_confirmation(self):
+        from hashlib import sha256
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);evaluations=root/'campaign/evaluations'
+            (root/'campaign/candidates').mkdir(parents=True)
+            for route,name,latency in (('cake','cake',2.0),('native_triton','native',1.0)):
+                source=route.encode();(root/'campaign/candidates'/(name+'.py')).write_bytes(source)
+                for phase in ('search','attribution'):
+                    path=evaluations/(name+'-'+phase);path.mkdir(parents=True)
+                    row={'phase':phase,'status':'accepted','candidate_path':'campaign/candidates/'+name+'.py','route':route,
+                         'source_sha256':sha256(source).hexdigest(),'candidate_sha256':sha256(source+b'!').hexdigest()}
+                    if phase=='search':
+                        row['timing']={'pooled_medians_ms':{'candidate':latency},'measurement_quality_passed':True}
+                    (path/'outcome.json').write_text(json.dumps(row))
+            with patch('development.launch.ROOT',root):self.assertEqual(select_nominee()[1],'cake-search')
+            for name in ('cake-search','cake-attribution'):(evaluations/name/'outcome.json').unlink()
+            with patch('development.launch.ROOT',root):self.assertIsNone(select_nominee())
 
     def test_an_overwritten_candidate_is_not_nominated_over_its_current_source(self):
         """attention_decode r1b: two sources at one path tied on latency; the stale one was picked."""
@@ -535,6 +554,33 @@ class EvaluationSubmissionTests(unittest.TestCase):
             self.assertIsNotNone(process[0].poll())
 
 
+class GapRecordTests(unittest.TestCase):
+    def test_gap_lines_are_projected_with_missing_fields_named(self):
+        from development.report import GAP_FIELDS, gap_records
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)/'gaps.jsonl'
+            self.assertEqual(gap_records(path),[])
+            full={key:'x' for key in GAP_FIELDS}
+            path.write_text(json.dumps(full)+'\n\n'+json.dumps({'hypothesis':'h'})+'\nnot json\n')
+            rows=gap_records(path)
+            self.assertEqual([row['line'] for row in rows],[1,3,4])
+            self.assertEqual(rows[0]['missing'],[])
+            self.assertIn('limitation',rows[1]['missing'])
+            self.assertIsNone(rows[2]['record']);self.assertTrue(rows[2]['missing'][0].startswith('unparseable'))
+
+    def test_an_undecodable_or_non_object_line_is_named_and_does_not_stop_the_report(self):
+        from development.report import GAP_FIELDS, gap_records
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)/'gaps.jsonl'
+            path.write_bytes(b'\xff\xfe\n[1, 2]\n'+b'['*200000+b'\n'+json.dumps({key:'x' for key in GAP_FIELDS}).encode()+b'\n')
+            rows=gap_records(path)
+            self.assertEqual([row['line'] for row in rows],[1,2,3,4])
+            self.assertTrue(rows[0]['missing'][0].startswith('unparseable'))
+            self.assertEqual(rows[1]['missing'],list(GAP_FIELDS))
+            self.assertTrue(rows[2]['missing'][0].startswith('unparseable'))
+            self.assertEqual(rows[3]['missing'],[])
+
+
 class DevelopmentReportTests(unittest.TestCase):
     def test_unstarted_and_failed_tasks_stay_in_the_denominator(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -547,8 +593,13 @@ class DevelopmentReportTests(unittest.TestCase):
                 'compiler':'fixed-compiler','adapter_commit':'fixed-launcher','runs':runs}))
             (state/'terminals/a.json').write_text(json.dumps({'task':'a','error':'unstarted_owner_exit',
                 'exit_code':None,'done':None,'release_verified':False,'reconciled_after_owner_exit':True}))
+            (root/'b/campaign').mkdir(parents=True)
+            (root/'b/campaign/gaps.jsonl').write_text(json.dumps({'hypothesis':'h'})+'\n')
             result=development_report(allocation,state)
             self.assertEqual(result['assigned'],2)
+            gaps={row['task']:row['gaps'] for row in result['rows']}
+            self.assertEqual(gaps['a'],[])
+            self.assertEqual([row['record'] for row in gaps['b']],[{'hypothesis':'h'}])
             self.assertEqual(result['execution_counts'],{'terminal':1,'unstarted':1})
             self.assertFalse(any(row['confirmation']['qualified'] for row in result['rows']))
             self.assertEqual(result['rows'][0]['terminal_error'],'unstarted_owner_exit')

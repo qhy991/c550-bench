@@ -13,6 +13,29 @@ def observation(path):
     return row, {'path':str(path),'read_error':error} if error else {'path':str(path)}
 
 
+GAP_FIELDS=('hypothesis','operation','limitation','supported_transforms','native',
+            'measured_effect','proposed_owner','evidence')
+
+
+def gap_records(path):
+    """Each author-recorded Cake limitation; a malformed line is kept and named, not dropped."""
+    if not path.exists():return []
+    try:
+        text=path.read_bytes().decode('utf-8',errors='replace')
+    except OSError as error:
+        return [{'line':None,'record':None,'missing':[f'unreadable: {error}']}]
+    rows=[]
+    for number,line in enumerate(text.splitlines(),1):
+        if not line.strip():continue
+        try:
+            value=json.loads(line)
+            missing=[key for key in GAP_FIELDS if key not in value] if isinstance(value,dict) else list(GAP_FIELDS)
+        except (ValueError,RecursionError) as error:
+            value,missing=None,[f'unparseable: {error}']
+        rows.append({'line':number,'record':value,'missing':missing})
+    return rows
+
+
 def report(allocation_path,state):
     allocation=json.loads(Path(allocation_path).read_text());state=Path(state)
     if allocation.get('kind')!='c500_hmz_development_allocation':
@@ -105,6 +128,7 @@ def report(allocation_path,state):
             'matching_profile_evidence':[str(path.parent/'receipt-artifacts/profile') for path in profiles],
             'release_verified':(done or {}).get('device_release_verified'),
             'promotion_disposition':'unreviewed',
+            'gaps':gap_records(root/'campaign/gaps.jsonl'),
             'evidence':{'claim':claim_ref,'terminal':terminal_ref,'owner':owner_ref,
                 'done':done_ref,'deadline':deadline_ref,
                 'journal':str(root/'campaign/JOURNAL.md'),'evolution':str(root/'campaign/EVOLUTION.md')}})
