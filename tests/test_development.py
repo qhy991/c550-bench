@@ -393,6 +393,29 @@ class EvaluationSubmissionTests(unittest.TestCase):
             request['phase']='search';request['candidate']=str(Path(__file__).resolve())
             with self.assertRaisesRegex(ValueError,'outside'):validate_request(root,request)
 
+    def test_a_reused_id_is_refused_before_it_can_fault_the_search(self):
+        """fib_gemm_n6144_k4096 (r1b): a resubmitted id reached the controller and closed search."""
+        from development.submission import submit
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);self.inputs(root)
+            for used in ('attempt','evaluated'):
+                if used=='evaluated':(root/'campaign/evaluations/evaluated').mkdir(parents=True)
+                with self.assertRaisesRegex(FileExistsError,'already used'):
+                    submit(root,Path('campaign/candidates/c.py'),used,'search','cake')
+            self.assertFalse((root/'campaign/evaluation-requests/evaluated').exists())
+            self.assertFalse((root/'campaign/SEARCH_CLOSE.json').exists())
+
+    def test_the_author_entry_prints_an_outcome_without_the_pinned_compiler(self):
+        """The author side never enters context(); printing must not import open_cake_ir."""
+        import contextlib,io,sys
+        from development import runtime
+        with tempfile.TemporaryDirectory() as directory, patch('development.submission.submit',
+                return_value={'status':'rejected','timing':None}), patch.dict(sys.modules,{'open_cake_ir':None}):
+            out=io.StringIO()
+            with contextlib.redirect_stdout(out),patch('development.runtime.Path.cwd',return_value=Path(directory)):
+                runtime.main(['evaluate','--candidate','c.py','--id','x'])
+            self.assertEqual(json.loads(out.getvalue())['status'],'rejected')
+
     def test_abandoned_request_is_sealed_without_starting_evaluation(self):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory);folder,_=self.inputs(root)

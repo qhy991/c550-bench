@@ -291,6 +291,7 @@ def main(argv=None):
     else:
         from development.submission import submit
         result=submit(root,a.candidate,a.id,a.phase,a.route)
-    from open_cake_ir.evaluation.core import _plain_json
-    print(json.dumps(_plain_json(result),indent=2,sort_keys=True,allow_nan=False))
+    # The author side never enters context(), so the pinned Compiler is not importable here;
+    # an outcome is already plain JSON as read back from response.json.
+    print(json.dumps(result,indent=2,sort_keys=True,allow_nan=False))
 if __name__=='__main__':main()

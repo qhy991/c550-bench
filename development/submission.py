@@ -38,6 +38,9 @@ def submit(root, candidate, identity, phase, route):
     if time.time() >= deadline['search_stop_at_epoch']:
         raise TimeoutError('search budget is closed')
     folder = root / 'campaign/evaluation-requests' / identity
+    # A reused id would reach the controller and fault the whole search; refuse it here.
+    if folder.exists() or (root / 'campaign/evaluations' / identity).exists():
+        raise FileExistsError(f'evaluation id {identity!r} is already used; choose a new id')
     folder.mkdir(parents=True, exist_ok=False)
     write_new(folder / 'request.json', request)
     while time.time() < deadline['search_stop_at_epoch']:
