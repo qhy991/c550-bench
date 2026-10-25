@@ -124,3 +124,10 @@ python c550bench.py check --task L1/069_rms_norm --device cuda:0 \
 L2/060 原始 smoke 参考自检 2/2 通过，但不授予候选资格。原始收据哈希见
 [验证记录](docs/VALIDATION.md)。其它八题设备结果仍未知。没有延迟、吞吐
 或 speedup 结果；单题正确性不能推广到完整模型服务。
+
+## Registered 54-task HMZ development
+
+The development-side evolve round uses external HMZ and the pinned Cake Compiler tools.
+It is distinct from this repository's twelve-task independent Bench. See
+[the C550 HMZ development protocol](docs/HMZ-DEVELOPMENT.md). Its generated allocation,
+workspaces and evidence stay outside the checkout.

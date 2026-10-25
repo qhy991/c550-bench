@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "kind": "c550_registered_development_tasks",
+  "tasks": [
+    "rmsnorm", "layernorm", "residual_rmsnorm", "softmax", "silu", "swiglu",
+    "gelu_tanh", "softsign", "selu", "softplus_gradient", "gelu_tanh_backward", "prelu",
+    "softmax_backward", "layernorm_backward_input", "rmsnorm_input_gradient", "absmax_rescale",
+    "cosine_similarity", "layernorm_gamma_beta_backward", "bias_gradient_reduction",
+    "per_channel_moments", "channel_absmax_scale", "momentum_sgd", "adamw", "adadelta",
+    "gemm", "gemm_silu", "pairwise_sqdist", "attention_decode",
+    "fib_fused_add_rmsnorm_h2048", "fib_fused_add_rmsnorm_h4096",
+    "fib_fused_add_rmsnorm_h7168", "fib_rmsnorm_h128", "fib_rmsnorm_h512",
+    "fib_rmsnorm_h1536", "fib_rmsnorm_h2048", "fib_rmsnorm_h4096", "fib_rmsnorm_h7168",
+    "fib_gemm_n128_k2048", "fib_gemm_n256_k7168", "fib_gemm_n2048_k4096",
+    "fib_gemm_n4096_k4096", "fib_gemm_n4096_k14336", "fib_gemm_n5120_k2048",
+    "fib_gemm_n6144_k4096", "fib_gemm_n28672_k4096", "gemm_bias", "add_rmsnorm_bf16",
+    "aka_residual_layernorm", "aka_gemm_nt_bias", "aka_row_gather", "aka_momentum_sgd",
+    "aka_histogram", "aka_max_pool1d", "metax_fp8_gemm"
+  ],
+  "unsupported": [
+    {"task": "tinygemm", "status": "unsupported_target", "target": "xcore1002"}
+  ]
+}
