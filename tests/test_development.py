@@ -264,6 +264,24 @@ class DevelopmentPreparation(unittest.TestCase):
                 (path/'outcome.json').write_text(json.dumps(row))
             with patch('development.launch.ROOT',root):self.assertEqual(select_nominee()[1],'fast')
 
+    def test_a_faster_native_result_is_not_nominated_for_final_confirmation(self):
+        from hashlib import sha256
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);evaluations=root/'campaign/evaluations'
+            (root/'campaign/candidates').mkdir(parents=True)
+            for route,name,latency in (('cake','cake',2.0),('native_triton','native',1.0)):
+                source=route.encode();(root/'campaign/candidates'/(name+'.py')).write_bytes(source)
+                for phase in ('search','attribution'):
+                    path=evaluations/(name+'-'+phase);path.mkdir(parents=True)
+                    row={'phase':phase,'status':'accepted','candidate_path':'campaign/candidates/'+name+'.py','route':route,
+                         'source_sha256':sha256(source).hexdigest(),'candidate_sha256':sha256(source+b'!').hexdigest()}
+                    if phase=='search':
+                        row['timing']={'pooled_medians_ms':{'candidate':latency},'measurement_quality_passed':True}
+                    (path/'outcome.json').write_text(json.dumps(row))
+            with patch('development.launch.ROOT',root):self.assertEqual(select_nominee()[1],'cake-search')
+            for name in ('cake-search','cake-attribution'):(evaluations/name/'outcome.json').unlink()
+            with patch('development.launch.ROOT',root):self.assertIsNone(select_nominee())
+
     def test_an_overwritten_candidate_is_not_nominated_over_its_current_source(self):
         """attention_decode r1b: two sources at one path tied on latency; the stale one was picked."""
         from hashlib import sha256
@@ -550,6 +568,17 @@ class GapRecordTests(unittest.TestCase):
             self.assertIn('limitation',rows[1]['missing'])
             self.assertIsNone(rows[2]['record']);self.assertTrue(rows[2]['missing'][0].startswith('unparseable'))
 
+    def test_an_undecodable_or_non_object_line_is_named_and_does_not_stop_the_report(self):
+        from development.report import GAP_FIELDS, gap_records
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)/'gaps.jsonl'
+            path.write_bytes(b'\xff\xfe\n[1, 2]\n'+json.dumps({key:'x' for key in GAP_FIELDS}).encode()+b'\n')
+            rows=gap_records(path)
+            self.assertEqual([row['line'] for row in rows],[1,2,3])
+            self.assertTrue(rows[0]['missing'][0].startswith('unparseable'))
+            self.assertEqual(rows[1]['missing'],list(GAP_FIELDS))
+            self.assertEqual(rows[2]['missing'],[])
+
 
 class DevelopmentReportTests(unittest.TestCase):
     def test_unstarted_and_failed_tasks_stay_in_the_denominator(self):
@@ -563,8 +592,13 @@ class DevelopmentReportTests(unittest.TestCase):
                 'compiler':'fixed-compiler','adapter_commit':'fixed-launcher','runs':runs}))
             (state/'terminals/a.json').write_text(json.dumps({'task':'a','error':'unstarted_owner_exit',
                 'exit_code':None,'done':None,'release_verified':False,'reconciled_after_owner_exit':True}))
+            (root/'b/campaign').mkdir(parents=True)
+            (root/'b/campaign/gaps.jsonl').write_text(json.dumps({'hypothesis':'h'})+'\n')
             result=development_report(allocation,state)
             self.assertEqual(result['assigned'],2)
+            gaps={row['task']:row['gaps'] for row in result['rows']}
+            self.assertEqual(gaps['a'],[])
+            self.assertEqual([row['record'] for row in gaps['b']],[{'hypothesis':'h'}])
             self.assertEqual(result['execution_counts'],{'terminal':1,'unstarted':1})
             self.assertFalse(any(row['confirmation']['qualified'] for row in result['rows']))
             self.assertEqual(result['rows'][0]['terminal_error'],'unstarted_owner_exit')

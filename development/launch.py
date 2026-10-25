@@ -76,7 +76,8 @@ def select_nominee():
         # The receipt names its own statistic; the C500 Compiler records medians only.
         statistic=timing.get('statistic','median')
         latency=(timing.get(f'pooled_{statistic}s_ms') or {}).get('candidate')
-        if row.get('phase')=='search' and row.get('status')=='accepted' and timing.get('measurement_quality_passed') is True and isinstance(latency,(int,float)) and key in profiles:
+        # Final confirmation measures Cake; native requests stay engineering evidence.
+        if row.get('route')=='cake' and row.get('phase')=='search' and row.get('status')=='accepted' and timing.get('measurement_quality_passed') is True and isinstance(latency,(int,float)) and key in profiles:
             rows.append((latency,p.parent.name,row,profiles[key]))
     # Only a candidate whose file still holds the evaluated source can be confirmed; an
     # author may overwrite a path, and a tie on latency must not pick the stale receipt.

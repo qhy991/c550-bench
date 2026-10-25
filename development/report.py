@@ -19,9 +19,13 @@ GAP_FIELDS=('hypothesis','operation','limitation','supported_transforms','native
 
 def gap_records(path):
     """Each author-recorded Cake limitation; a malformed line is kept and named, not dropped."""
-    if not path.is_file():return []
+    if not path.exists():return []
+    try:
+        text=path.read_bytes().decode('utf-8',errors='replace')
+    except OSError as error:
+        return [{'line':None,'record':None,'missing':[f'unreadable: {error}']}]
     rows=[]
-    for number,line in enumerate(path.read_text().splitlines(),1):
+    for number,line in enumerate(text.splitlines(),1):
         if not line.strip():continue
         try:
             value=json.loads(line)

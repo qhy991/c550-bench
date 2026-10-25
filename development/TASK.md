@@ -79,7 +79,8 @@ implementation. It shares this task's original 10,800-second deadline and 1,080-
 confirmation reserve.
 
 Never switch routes inside an evaluated candidate. Never replace a failed Cake result with
-a native result or report native timing as Cake timing. Report both routes and the reason
+a native result or report native timing as Cake timing. Final confirmation nominates only a Cake
+candidate; native results remain engineering evidence beside it. Report both routes and the reason
 for the split. A validated native mechanism can become a later Compiler/IR/lowering
 proposal only through a successor commit, its analyses, counterexamples, Corpus Gate and
 separate C500 qualification. `No promotion` is valid.
@@ -107,8 +108,9 @@ the file if absent): `hypothesis`, `operation`, `limitation` (the exact diagnost
 code or generated-source/TTGIR/mcfatbin observation), `supported_transforms` (what you tried
 and why it could not express the mechanism), `native` (the native request id and its
 outcome, or the specific skip reason), `measured_effect` (observed timing or allocation
-deltas, or "none"), `proposed_owner` (candidate, Verifier, cost model, IR vocabulary,
+deltas, or "none"), `proposed_owner` (Verifier, cost model, IR vocabulary,
 lowering, toolchain, host, Workload or baseline) and `evidence` (own `campaign/` paths).
 A task that met no real limitation appends nothing. Candidate misuse, resource waits and
 measurement noise are not limitations.
+
 The campaign owner decides the terminal result and verifies device release.
