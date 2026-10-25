@@ -13,7 +13,7 @@ def unclaimed(plan_path, host, previous_allocation, previous_state, repository):
     state=Path(previous_state);launch=read(state/'LAUNCH.json')
     if any(not (state/name).is_dir() for name in ('claims','commands','owners','logs','terminals')):
         raise ValueError('predecessor execution custody is unavailable')
-    if (old.get('kind')!='c550_hmz_development_allocation' or old.get('host')!=host
+    if (old.get('kind')!='c500_hmz_development_allocation' or old.get('host')!=host
             or old.get('compiler')!=plan['compiler_commit']):
         raise ValueError('predecessor allocation differs from the host and Compiler')
     if Path(launch['allocation']).resolve()!=Path(previous_allocation).resolve():

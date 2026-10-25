@@ -1,7 +1,7 @@
-# Fixed-Compiler MetaX C550 evolve task: {task}
+# Fixed-Compiler MetaX C500 evolve task: {task}
 
-This is one task in the frozen 54-task C550 development denominator at Compiler
-`{compiler}`. The exact Workload, starter, target `xcore1002`, numerical policy,
+This is one task in the frozen 54-task C500 development denominator at Compiler
+`{compiler}`. The exact Workload, starter, target `xcore1000`, numerical policy,
 reference access, total deadline, confirmation reserve and measurement protocol are
 fixed by `campaign/development-binding.json`.
 
@@ -70,7 +70,7 @@ or generated-source diagnosis first. A generic compile error is not proof of an 
 
 You may then create a **separate** native Triton engineering request under
 `campaign/native-engineering/<id>/`. Its `plan.json` must name the blocked Cake candidate,
-the specific missing commitment, inherited material, exact `xcore1002` target, and the
+the specific missing commitment, inherited material, exact `xcore1000` target, and the
 same Workload/oracle/numerical/measurement contract. The native candidate uses the
 qualified kernel-only Triton JSON interface; it cannot call Torch or an existing
 implementation. It shares this task's original 10,800-second deadline and 1,080-second
@@ -80,7 +80,7 @@ Never switch routes inside an evaluated candidate. Never replace a failed Cake r
 a native result or report native timing as Cake timing. Report both routes and the reason
 for the split. A validated native mechanism can become a later Compiler/IR/lowering
 proposal only through a successor commit, its analyses, counterexamples, Corpus Gate and
-separate C550 qualification. `No promotion` is valid.
+separate C500 qualification. `No promotion` is valid.
 
 After writing the required `plan.json` and native candidate JSON, use the same evaluator
 with `--route native_triton`. The candidate must remain below the plan directory. Use

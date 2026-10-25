@@ -15,7 +15,7 @@ def observation(path):
 
 def report(allocation_path,state):
     allocation=json.loads(Path(allocation_path).read_text());state=Path(state)
-    if allocation.get('kind')!='c550_hmz_development_allocation':
+    if allocation.get('kind')!='c500_hmz_development_allocation':
         raise ValueError('unsupported development allocation')
     rows=[];seen=set()
     for run in allocation['runs']:

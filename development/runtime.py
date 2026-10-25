@@ -46,6 +46,37 @@ def parse_cake_submission(text, filename, parser, frontend_error):
             if 'program_id' in skeleton else {'python_source':text}),None
 
 
+def build_timeout_feedback(error):
+    """Feedback for a candidate whose isolated compile ran out of time, else None.
+
+    The build jail runs before any device admission, so a compile that exceeds its
+    timeout costs only that candidate (fib_gemm_n5120_k2048, r1b: a [256, 2048] tile).
+    Every other harness fault, and any timeout during device evaluation, still closes
+    the search, because there the device and release state are not known.
+    """
+    from open_cake_ir.lab.faults import RunProtocolFault
+    from open_cake_ir.lab.process import SupervisedProcessTimeout
+    if not (isinstance(error, RunProtocolFault) and error.protocol_adherence == 'harness_fault'
+            and isinstance(error.__cause__, SupervisedProcessTimeout)):
+        return None
+    return {'stage':'build','code':'BUILD_TIMEOUT','error':str(error),
+            'repair':'the candidate or its toolchain exceeded the isolated build timeout before '
+                     'reaching the device; a smaller compiled tile or unroll extent compiles faster'}
+
+
+def reject_build_timeout(output, error, *, route, phase, source_sha256, candidate_sha256, candidate_path):
+    """Record a build timeout as a rejected outcome; None for any other fault."""
+    feedback=build_timeout_feedback(error)
+    if feedback is None:return None
+    if getattr(error,'artifact_payloads',None):retain(output/'build-artifacts',error.artifact_payloads)
+    write_new(output/'build.json',{'route':route,'disposition':'rejected','feedback':feedback})
+    result={'status':'rejected','route':route,'phase':phase,'feedback':feedback,
+            'source_sha256':source_sha256,'candidate_sha256':candidate_sha256,
+            'candidate_path':candidate_path,'completed_at_epoch':time.time()}
+    write_new(output/'outcome.json',result)
+    return result
+
+
 def retain(root: Path, payloads) -> None:
     root.mkdir(parents=True, exist_ok=False)
     for role, payload in payloads.items():
@@ -96,7 +127,7 @@ def prepare(root: Path) -> dict:
     from tools.launch_task import _admit_stack,_prepare_baseline,_runtime_config
     workload_path=root/'campaign/original-workload.json';starter=root/'campaign/candidates/starter.py'
     workload=load_workload(workload_path)
-    if workload.target!='xcore1002': raise ValueError('development Workload target differs')
+    if workload.target!='xcore1000': raise ValueError('development Workload target differs')
     prior=json.loads((root/'campaign/prior-run.json').read_text())
     protocol=prior['evaluation_protocol'];authoring=json.loads(json.dumps(prior['authoring']))
     preparation=root/'campaign/baseline-preparation';preparation.mkdir(exist_ok=False)
@@ -150,7 +181,7 @@ def native_plan(root: Path, candidate: Path, binding: dict) -> dict:
         raise ValueError('native candidate must live under campaign/native-engineering/<id>')
     plan=json.loads((folder/'plan.json').read_text())
     expected={'schema_version':1,'route':'native_triton','task':binding['task'],
-              'target':'xcore1002','cake_candidate':plan.get('cake_candidate'),
+              'target':'xcore1000','cake_candidate':plan.get('cake_candidate'),
               'missing_commitment':plan.get('missing_commitment'),
               'same_contract':True,'shares_task_deadline':True}
     if plan!=expected or not isinstance(plan['cake_candidate'],str) or not plan['cake_candidate'] \
@@ -212,14 +243,32 @@ def evaluate(root: Path, candidate: Path, identity: str, phase: str, route: str)
         submission=CandidateSubmission.seal(environment.media_type,
             candidate_bytes if candidate_path.suffix=='.json' else canonical_json_bytes(payload))
     else:
-        native_plan(root,candidate_path,binding)
+        try:
+            native_plan(root,candidate_path,binding)
+        except (ValueError,OSError) as error:
+            # The plan is the author's own input: answer it as a rejected candidate the
+            # author can correct, not as a controller fault that closes the search.
+            feedback={'stage':'native_plan','error':str(error),'code':'NATIVE_PLAN_INVALID',
+                      'expected_fields':['schema_version','route','task','target','cake_candidate',
+                                         'missing_commitment','same_contract','shares_task_deadline']}
+            write_new(output/'build.json',{'route':route,'disposition':'rejected','feedback':feedback})
+            result={'status':'rejected','route':route,'phase':phase,'feedback':feedback,
+                'source_sha256':source_sha256,'candidate_sha256':None,
+                'candidate_path':candidate_relative,'completed_at_epoch':time.time()}
+            write_new(output/'outcome.json',result);return result
         starter=frontend.read_schedule(root/'campaign/candidates/starter.py').document
         lowered=compiler.lower(compiler.assess(starter))
         environment=NativeTritonEnvironment(builder,toolchain_requirements=lowered.toolchain_requirements,
             authority_document={'environment_kind':'native_triton','route_split_from':'cake'},
             workload=workload,case_id='primary')
         submission=CandidateSubmission.seal(environment.media_type,candidate_bytes)
-    built=environment.build(submission)
+    try:
+        built=environment.build(submission)
+    except Exception as error:
+        result=reject_build_timeout(output,error,route=route,phase=phase,source_sha256=source_sha256,
+            candidate_sha256=submission.sha256,candidate_path=candidate_relative)
+        if result is None:raise
+        return result
     write_new(output/'build.json',{'route':route,'disposition':built.disposition,
                                    'feedback':dict(built.feedback)})
     if built.artifact_payloads: retain(output/'build-artifacts',built.artifact_payloads)
@@ -279,6 +328,7 @@ def main(argv=None):
     else:
         from development.submission import submit
         result=submit(root,a.candidate,a.id,a.phase,a.route)
-    from open_cake_ir.evaluation.core import _plain_json
-    print(json.dumps(_plain_json(result),indent=2,sort_keys=True,allow_nan=False))
+    # The author side never enters context(), so the pinned Compiler is not importable here;
+    # an outcome is already plain JSON as read back from response.json.
+    print(json.dumps(result,indent=2,sort_keys=True,allow_nan=False))
 if __name__=='__main__':main()

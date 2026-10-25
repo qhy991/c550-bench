@@ -94,7 +94,7 @@ def prepare(plan_path: Path, host: str, output: Path, *, repository: Path | None
         shutil.copyfile(adapter, run / "campaign/compiler_tools.py")
         binding = {
             "schema_version": 1,
-            "kind": "c550_hmz_development",
+            "kind": "c500_hmz_development",
             "sequence": sequence,
             "task": row["task"],
             "host": host,
@@ -119,7 +119,7 @@ def prepare(plan_path: Path, host: str, output: Path, *, repository: Path | None
             render_task(repository, task=row["task"], compiler=plan["compiler_commit"])
         )
         (run / "campaign/AGENTS.md").write_text(
-            "# C550 HMZ development author\n\n"
+            "# C500 HMZ development author\n\n"
             "Read campaign/TASK.md and both named skills before editing a candidate.\n"
             "Use only this task's HMZ Compiler tools and campaign evaluator.\n"
             "Keep Cake and separate native-route evidence distinct.\n"
@@ -134,11 +134,11 @@ def prepare(plan_path: Path, host: str, output: Path, *, repository: Path | None
                        cwd=run, check=True, stdout=subprocess.DEVNULL)
         subprocess.run(["git", "-C", str(run), "add", ".gitignore", "campaign"], check=True)
         subprocess.run(["git", "-C", str(run), "commit", "-qm",
-                        "Prepare frozen C550 HMZ development task"], check=True)
+                        "Prepare frozen C500 HMZ development task"], check=True)
         prepared.append({**binding, "prepared_commit": git(run, "rev-parse", "HEAD")})
     allocation = {
         "schema_version": 1,
-        "kind": "c550_hmz_development_allocation",
+        "kind": "c500_hmz_development_allocation",
         "host": host,
         "compiler": plan["compiler_commit"],
         "adapter_commit": plan["adapter_commit"],

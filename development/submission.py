@@ -8,6 +8,9 @@ import sys
 import time
 
 
+CONFIRMATION_ID = 'final-confirmation'
+
+
 def write_new(path, value):
     with path.open('x') as stream:
         json.dump(value, stream, indent=2, sort_keys=True)
@@ -21,6 +24,8 @@ def validate(root, request):
     if (not isinstance(identity, str) or not identity
             or not identity.replace('-', '').replace('_', '').isalnum()):
         raise ValueError('invalid evaluation id')
+    if identity == CONFIRMATION_ID:
+        raise ValueError('the controller owns the final-confirmation id')
     if request['phase'] not in {'search', 'attribution'}:
         raise ValueError('the controller owns final confirmation')
     if request['route'] not in {'cake', 'native_triton'}:
@@ -38,6 +43,9 @@ def submit(root, candidate, identity, phase, route):
     if time.time() >= deadline['search_stop_at_epoch']:
         raise TimeoutError('search budget is closed')
     folder = root / 'campaign/evaluation-requests' / identity
+    # A reused id would reach the controller and fault the whole search; refuse it here.
+    if folder.exists() or (root / 'campaign/evaluations' / identity).exists():
+        raise FileExistsError(f'evaluation id {identity!r} is already used; choose a new id')
     folder.mkdir(parents=True, exist_ok=False)
     write_new(folder / 'request.json', request)
     while time.time() < deadline['search_stop_at_epoch']:

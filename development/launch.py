@@ -10,21 +10,32 @@ def write_new(path,value):
     with path.open('x') as f: json.dump(value,f,indent=2,sort_keys=True);f.write('\n')
 def read(path): return json.loads(path.read_text())
 
+# scripts/install_hmz_maca.sh builds this copy of hmz 0.2.1: its stock fence grants
+# /dev/nvidia*, /dev/dri and /dev/kfd but not MetaX's /dev/mxcd.
+HMZ=Path.home()/'.cake-c500-hmz/bin/hmz'
+MACA_ENVIRONMENT={'LD_LIBRARY_PATH':'/opt/maca/lib:/opt/maca/mxgpu_llvm/lib','MACA_PATH':'/opt/maca'}
+
 def hmz_entry():
-    entry=Path(sys.executable).absolute().parent/'hmz'
-    if not entry.is_file() or not os.access(entry,os.X_OK):raise RuntimeError('hmz is unavailable beside owner Python')
-    subprocess.run([str(entry),'--help'],check=True,timeout=30,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
-    return entry
+    if not os.access(HMZ,os.X_OK):raise RuntimeError('run-private hmz is unavailable: '+str(HMZ))
+    subprocess.run([str(HMZ),'--help'],check=True,timeout=30,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+    return HMZ
 
 def provider_environment(binding):
-    env=dict(os.environ,HOME=binding['home']);entry=hmz_entry();bin_dir=str(entry.parent)
-    env['PATH']=os.pathsep.join((bin_dir,'/provider-native',env.get('PATH','')))
-    credential=Path('/provider-auth/credential').read_text().strip()
-    if not credential:raise RuntimeError('provider credential is empty')
-    env.update(ANTHROPIC_AUTH_TOKEN=credential,ANTHROPIC_API_KEY=credential,
-               ANTHROPIC_BASE_URL='https://cloud.infini-ai.com/maas',ANTHROPIC_MODEL='glm-5.3',
-               ANTHROPIC_DEFAULT_OPUS_MODEL='glm-5.3',ANTHROPIC_DEFAULT_SONNET_MODEL='glm-5.3',
-               ANTHROPIC_DEFAULT_HAIKU_MODEL='glm-5.3')
+    """The C500 account's own Claude settings reach hmz through HOME; no key is copied."""
+    if not ROOT.is_relative_to(binding['home']):
+        raise RuntimeError('hmz fences writes only for a Run under the home directory: '+str(ROOT))
+    env=dict(os.environ,HOME=binding['home']);entry=hmz_entry()
+    env['PATH']=os.pathsep.join((str(entry.parent),env.get('PATH','')))
+    # ~/.triton is read-only inside the fence, and a full evaluation outlasts Claude
+    # Code's default two-minute Bash limit.
+    env['TRITON_CACHE_DIR']=str(ROOT/'.local/triton-cache')
+    env['BASH_DEFAULT_TIMEOUT_MS']=env['BASH_MAX_TIMEOUT_MS']=str(1800*1000)
+    # glm-5.3 at high effort exceeded Claude Code's 32000-token reply cap in one
+    # cohort-010 turn and the single-session author ended 73 minutes early.
+    env['CLAUDE_CODE_MAX_OUTPUT_TOKENS']='64000'
+    # The broker worker inherits this environment, and MACA torch cannot import without
+    # its libraries on the path (OSError: libmxomp.so); run-007's launcher exported both.
+    env.update(MACA_ENVIRONMENT)
     return entry,env
 
 def run_process(command,env,timeout,log):
@@ -62,10 +73,18 @@ def select_nominee():
     for p in (ROOT/'campaign/evaluations').glob('*/outcome.json'):
         row=read(p);timing=row.get('timing') or {}
         key=(row.get('candidate_path'),row.get('route'),row.get('source_sha256'),row.get('candidate_sha256'))
-        mean=(timing.get('pooled_means_ms') or {}).get('candidate')
-        if row.get('phase')=='search' and row.get('status')=='accepted' and timing.get('measurement_quality_passed') is True and isinstance(mean,(int,float)) and key in profiles:
-            rows.append((mean,p.parent.name,row,profiles[key]))
-    return min(rows,key=lambda x:x[0]) if rows else None
+        # The receipt names its own statistic; the C500 Compiler records medians only.
+        statistic=timing.get('statistic','median')
+        latency=(timing.get(f'pooled_{statistic}s_ms') or {}).get('candidate')
+        if row.get('phase')=='search' and row.get('status')=='accepted' and timing.get('measurement_quality_passed') is True and isinstance(latency,(int,float)) and key in profiles:
+            rows.append((latency,p.parent.name,row,profiles[key]))
+    # Only a candidate whose file still holds the evaluated source can be confirmed; an
+    # author may overwrite a path, and a tie on latency must not pick the stale receipt.
+    def on_disk(row):
+        path=ROOT/row['candidate_path']
+        return path.is_file() and sha256(path.read_bytes()).hexdigest()==row['source_sha256']
+    rows=[entry for entry in rows if on_disk(entry[2])]
+    return min(rows,key=lambda x:(x[0],x[1])) if rows else None
 
 def mentions_root(command,needle):
     start=0
@@ -141,7 +160,8 @@ def main(argv=None):
                 else:
                     path=ROOT/'campaign/evaluations/final-confirmation/outcome.json'
                     confirmation=read(path) if path.exists() else {'status':'missing','exit_code':code}
-                    if (confirmation.get('source_sha256')!=row['source_sha256']
+                    if (confirmation.get('phase')!='confirmation'
+                            or confirmation.get('source_sha256')!=row['source_sha256']
                             or confirmation.get('candidate_sha256')!=row['candidate_sha256']):
                         confirmation={'status':'candidate_identity_mismatch',
                             'search_id':search_id,'profile_id':profile_id,'observed':confirmation}
