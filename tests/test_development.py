@@ -572,12 +572,13 @@ class GapRecordTests(unittest.TestCase):
         from development.report import GAP_FIELDS, gap_records
         with tempfile.TemporaryDirectory() as directory:
             path=Path(directory)/'gaps.jsonl'
-            path.write_bytes(b'\xff\xfe\n[1, 2]\n'+json.dumps({key:'x' for key in GAP_FIELDS}).encode()+b'\n')
+            path.write_bytes(b'\xff\xfe\n[1, 2]\n'+b'['*200000+b'\n'+json.dumps({key:'x' for key in GAP_FIELDS}).encode()+b'\n')
             rows=gap_records(path)
-            self.assertEqual([row['line'] for row in rows],[1,2,3])
+            self.assertEqual([row['line'] for row in rows],[1,2,3,4])
             self.assertTrue(rows[0]['missing'][0].startswith('unparseable'))
             self.assertEqual(rows[1]['missing'],list(GAP_FIELDS))
-            self.assertEqual(rows[2]['missing'],[])
+            self.assertTrue(rows[2]['missing'][0].startswith('unparseable'))
+            self.assertEqual(rows[3]['missing'],[])
 
 
 class DevelopmentReportTests(unittest.TestCase):

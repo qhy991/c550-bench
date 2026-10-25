@@ -30,7 +30,7 @@ def gap_records(path):
         try:
             value=json.loads(line)
             missing=[key for key in GAP_FIELDS if key not in value] if isinstance(value,dict) else list(GAP_FIELDS)
-        except ValueError as error:
+        except (ValueError,RecursionError) as error:
             value,missing=None,[f'unparseable: {error}']
         rows.append({'line':number,'record':value,'missing':missing})
     return rows
