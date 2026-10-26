@@ -76,6 +76,7 @@ class DevelopmentPreparation(unittest.TestCase):
             self.assertIn('$evolve',task);self.assertIn('$metax-c550-hardware-exploration',task)
             self.assertIn('separate',task.lower());self.assertIn('native Triton',task)
             self.assertIn('a native probe is required',task);self.assertIn('campaign/gaps.jsonl',task)
+            self.assertIn('even when it is the starter',task)
             self.assertTrue((run/'campaign/compiler-api.json').is_file())
             self.assertEqual(json.loads((run/'campaign/prior-run.json').read_text()),{})
             self.assertTrue((run/'.deps/cake-ir/skills/evolve/SKILL.md').is_file())

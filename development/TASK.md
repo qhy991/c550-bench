@@ -37,7 +37,10 @@ python3 -m development.runtime evaluate \
 ```
 
 The owner will consider only correctness-qualified search evidence with a separate
-accepted attribution result. Do not invoke final confirmation.
+accepted attribution result. Before the search cutoff, run one attribution on your best
+accepted search candidate, even when it is the starter and no candidate beat it: without
+it the owner has nothing to confirm, and a valid "the starter is best" result ends as
+no qualified result. Do not invoke final confirmation.
 
 ## Default Cake route
 
