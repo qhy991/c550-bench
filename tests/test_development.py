@@ -10,8 +10,8 @@ from unittest.mock import patch
 
 from development.binding import HOST, SKILLS, TARGET, validate
 from development.prepare import prepare
-from development.runtime import evaluation_purpose, load_local_baseline, native_plan, parse_cake_submission, phase_broker
-from development.queue import DevelopmentQueue, process_alive, reconcile
+from development.runtime import evaluation_purpose, load_local_baseline, native_plan, parse_cake_submission
+from development.queue import START_SPACING_SECONDS, DevelopmentQueue, process_alive, reconcile
 from development.launch import hmz_command, main as launch_main, release_verified, select_nominee
 from development.submission import abandon_pending, execute, service, validate as validate_request
 from development.owner_evaluation import require_owner
@@ -90,18 +90,6 @@ class DevelopmentPreparation(unittest.TestCase):
             plan['assignments'].pop()
             with self.assertRaisesRegex(ValueError,'intact task denominator'):
                 validate(plan,ROOT)
-
-    def test_only_the_final_confirmation_waits_past_the_search_lease_wait(self):
-        broker={'command':['python3','-m','broker','--local-device','3','--local-queue-seconds','300'],
-                'timeout_seconds':2100,'cwd':'/x'}
-        for phase in ('search','attribution'):
-            self.assertIs(phase_broker(broker,phase,1000.0,0.0),broker)
-        confirmed=phase_broker(broker,'confirmation',1000.0,0.0)
-        self.assertEqual(confirmed['command'][-1],'1000')
-        self.assertEqual(confirmed['timeout_seconds'],2800)
-        self.assertEqual(broker['command'][-1],'300')
-        late=phase_broker(broker,'confirmation',1000.0,900.0)
-        self.assertEqual((late['command'][-1],late['timeout_seconds']),('300',2100))
 
     def test_freeze_writes_the_declared_authors_per_device(self):
         import importlib.util
@@ -384,13 +372,65 @@ class DevelopmentQueueTests(unittest.TestCase):
                     runs.append({**binding,'prepared_commit':commit})
                 allocation=root/'allocation.json';allocation.write_text(json.dumps({
                     'kind':'c500_hmz_development_allocation','runs':runs}))
-                launcher=_QueueLauncher();result=DevelopmentQueue(
-                    allocation,root/'state',launcher,sleeper=lambda _:None).run()
+                launcher=_QueueLauncher()
+                with patch('development.queue.START_SPACING_SECONDS',0):
+                    result=DevelopmentQueue(allocation,root/'state',launcher,sleeper=lambda _:None).run()
                 self.assertEqual(result,{'assigned':3,'started':3,'terminal':3,'blocked_devices':[]})
                 self.assertEqual(launcher.maximum,capacity)
                 self.assertEqual(len(list((root/'state/claims').glob('*.json'))),3)
                 with self.assertRaises(FileExistsError):
                     DevelopmentQueue(allocation,root/'state',launcher).run()
+
+    def test_authors_on_one_card_start_spaced_and_other_cards_do_not_wait(self):
+        """Same-budget siblings started together reach their single confirmation together."""
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);runs=[]
+            for task,device in (('a',2),('b',2),('c',2),('d',3)):
+                path=root/task;binding={'task':task,'root':str(path),'device':{'physical_device':device},
+                                        'authors_per_device':3}
+                commit=repository(path,{'campaign/development-binding.json':json.dumps(binding)})
+                runs.append({**binding,'prepared_commit':commit})
+            allocation=root/'allocation.json';allocation.write_text(json.dumps({
+                'kind':'c500_hmz_development_allocation','runs':runs}))
+            clock=[0.0];starts={}
+            class Running:
+                def __init__(self,end):self.end=end
+                def poll(self):return 0 if clock[0]>=self.end else None
+            class Launcher(_QueueLauncher):
+                def start(self,run,claim,state):
+                    super().start(run,claim,state);starts[run['task']]=clock[0];return Running(clock[0]+3600)
+            def sleep(seconds):clock[0]+=60
+            result=DevelopmentQueue(allocation,root/'state',Launcher(),sleeper=sleep,clock=lambda:clock[0]).run()
+            self.assertEqual((result['started'],result['terminal'],result['blocked_devices']),(4,4,[]))
+            card=[starts[t] for t in 'abc']
+            self.assertEqual(card[0],0.0)
+            self.assertTrue(all(START_SPACING_SECONDS<=later-earlier<START_SPACING_SECONDS+120
+                                for earlier,later in zip(card,card[1:])),card)
+            self.assertEqual(starts['d'],0.0)
+            self.assertEqual(json.loads((root/'state/LAUNCH.json').read_text())['start_spacing_seconds'],
+                             START_SPACING_SECONDS)
+
+    def test_spacing_never_seals_a_waiting_task_and_one_author_cards_are_not_spaced(self):
+        """A short first Run leaves the card idle while its sibling waits out the spacing."""
+        for capacity,first_gap in ((2,START_SPACING_SECONDS),(1,60.0)):
+            with self.subTest(capacity=capacity), tempfile.TemporaryDirectory() as directory:
+                root=Path(directory);runs=[]
+                for task in ('a','b'):
+                    path=root/task;binding={'task':task,'root':str(path),'device':{'physical_device':2},
+                                            'authors_per_device':capacity}
+                    commit=repository(path,{'campaign/development-binding.json':json.dumps(binding)})
+                    runs.append({**binding,'prepared_commit':commit})
+                allocation=root/'allocation.json';allocation.write_text(json.dumps({
+                    'kind':'c500_hmz_development_allocation','runs':runs}))
+                clock=[0.0];starts={}
+                class Launcher(_QueueLauncher):
+                    def start(self,run,claim,state):
+                        super().start(run,claim,state);starts[run['task']]=clock[0];return _Immediate()
+                def sleep(seconds):clock[0]+=60
+                result=DevelopmentQueue(allocation,root/'state',Launcher(),sleeper=sleep,clock=lambda:clock[0]).run()
+                self.assertEqual((result['started'],result['terminal']),(2,2))
+                self.assertNotIn('error',json.loads((root/'state/terminals/b.json').read_text()))
+                self.assertEqual(starts['b']-starts['a'],first_gap)
 
     def test_dead_owner_reconciliation_seals_started_and_unstarted_tasks(self):
         with tempfile.TemporaryDirectory() as directory:
