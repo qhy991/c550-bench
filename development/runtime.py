@@ -166,6 +166,19 @@ def prepare(root: Path) -> dict:
     return {'task':binding['task'],'baseline':str(bundle),'provider_calls':0,'gpu_calls':0}
 
 
+def phase_broker(broker: dict, phase: str, stop: float, now: float) -> dict:
+    """The final confirmation is attempted once while sibling authors on the card queue for its
+    lease. It waits for the lease as long as its phase lasts instead of the search wait."""
+    if phase != 'confirmation':
+        return broker
+    command = list(broker['command'])
+    index = command.index('--local-queue-seconds') + 1
+    search_wait = float(command[index])
+    wait = max(search_wait, float(int(stop - now)))
+    command[index] = str(int(wait))
+    return dict(broker, command=command, timeout_seconds=broker['timeout_seconds'] + int(wait - search_wait))
+
+
 class DeadlineAdmission:
     def __init__(self, root: Path, phase: str):
         deadline=json.loads((root/'campaign/deadline.json').read_text())
@@ -279,7 +292,7 @@ def evaluate(root: Path, candidate: Path, identity: str, phase: str, route: str)
                 'candidate_path':candidate_relative,'completed_at_epoch':time.time()}
         write_new(output/'outcome.json',result)
         return result
-    broker=runtime['broker'];protocol=authority['evaluation_protocol']
+    broker=phase_broker(runtime['broker'],phase,cutoff,time.time());protocol=authority['evaluation_protocol']
     prepared=json.loads((root/'campaign/prepared-baseline.json').read_text())
     baseline=load_local_baseline(root,Path(prepared['fixed_baseline_bundle_path']))
     submitter=CommandBrokerSubmitter(command=tuple(broker['command']),workload_path=workload_path,

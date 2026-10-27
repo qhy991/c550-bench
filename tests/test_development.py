@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 from development.binding import HOST, SKILLS, TARGET, validate
 from development.prepare import prepare
-from development.runtime import evaluation_purpose, load_local_baseline, native_plan, parse_cake_submission
+from development.runtime import evaluation_purpose, load_local_baseline, native_plan, parse_cake_submission, phase_broker
 from development.queue import DevelopmentQueue, process_alive, reconcile
 from development.launch import hmz_command, main as launch_main, release_verified, select_nominee
 from development.submission import abandon_pending, execute, service, validate as validate_request
@@ -90,6 +90,33 @@ class DevelopmentPreparation(unittest.TestCase):
             plan['assignments'].pop()
             with self.assertRaisesRegex(ValueError,'intact task denominator'):
                 validate(plan,ROOT)
+
+    def test_only_the_final_confirmation_waits_past_the_search_lease_wait(self):
+        broker={'command':['python3','-m','broker','--local-device','3','--local-queue-seconds','300'],
+                'timeout_seconds':2100,'cwd':'/x'}
+        for phase in ('search','attribution'):
+            self.assertIs(phase_broker(broker,phase,1000.0,0.0),broker)
+        confirmed=phase_broker(broker,'confirmation',1000.0,0.0)
+        self.assertEqual(confirmed['command'][-1],'1000')
+        self.assertEqual(confirmed['timeout_seconds'],2800)
+        self.assertEqual(broker['command'][-1],'300')
+        late=phase_broker(broker,'confirmation',1000.0,900.0)
+        self.assertEqual((late['command'][-1],late['timeout_seconds']),('300',2100))
+
+    def test_freeze_writes_the_declared_authors_per_device(self):
+        import importlib.util
+        spec=importlib.util.spec_from_file_location('freeze',ROOT/'scripts/freeze_development.py')
+        freeze=importlib.util.module_from_spec(spec);spec.loader.exec_module(freeze)
+        with tempfile.TemporaryDirectory() as d:
+            home=Path(d);output=home/'plan.json'
+            rows=[{'task':t,'workload':'w','starter':'s','prior_run':'p','prepared_baseline':'b'}
+                  for t in json.loads((ROOT/'development/tasks.json').read_text())['tasks']]
+            argv=['freeze','--retained',d,'--compiler-commit','a'*40,'--adapter-commit','b'*40,
+                  '--compiler-root','/c','--adapter-root','/a','--home',d,'--owner-root',str(home/'runs'),
+                  '--output',str(output),'--authors-per-device','3']
+            with patch.object(freeze,'retained',return_value=(rows,{})),patch.object(sys,'argv',argv):
+                freeze.main()
+            self.assertEqual(json.loads(output.read_text())['controls']['authors_per_device'],3)
 
     def test_authors_per_device_is_declared_within_the_named_bound(self):
         from development.binding import MAX_AUTHORS_PER_DEVICE
