@@ -91,6 +91,18 @@ class DevelopmentPreparation(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,'intact task denominator'):
                 validate(plan,ROOT)
 
+    def test_authors_per_device_is_declared_within_the_named_bound(self):
+        from development.binding import MAX_AUTHORS_PER_DEVICE
+        for value, accepted in ((1, True), (MAX_AUTHORS_PER_DEVICE, True), (0, False),
+                                (MAX_AUTHORS_PER_DEVICE + 1, False), (True, False), ('2', False)):
+            with self.subTest(value=value), tempfile.TemporaryDirectory() as d:
+                _,_,plan=self.inputs(d);plan['controls']['authors_per_device']=value
+                if accepted:
+                    validate(plan,ROOT)
+                else:
+                    with self.assertRaisesRegex(ValueError,'controls differ'):
+                        validate(plan,ROOT)
+
     def test_freeze_writes_pci_ids_the_maca_lease_accepts(self):
         """The MACA lease takes domain:bus:device; a trailing .0 function refused every task."""
         import importlib.util, re

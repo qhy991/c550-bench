@@ -44,6 +44,8 @@ def main():
     for name in ("compiler-root", "adapter-root", "home", "owner-root"):
         p.add_argument("--" + name, required=True)
     p.add_argument("--output", type=Path, required=True)
+    p.add_argument("--authors-per-device", type=int, required=True,
+                   help="author processes per card; choose from the previous round's card busy share")
     a = p.parse_args()
     if any(not re.fullmatch(r"[0-9a-f]{40}", x) for x in (a.compiler_commit, a.adapter_commit)):
         raise ValueError("commits must be full lowercase Git identities")
@@ -64,7 +66,7 @@ def main():
         "compiler_commit": a.compiler_commit, "adapter_commit": a.adapter_commit,
         "controls": {"model": "glm-5.3", "reasoning_effort": "high", "wall_time_seconds": 10800,
             "search_seconds": 9720, "confirmation_seconds": 1080, "tokens": "accounting_only",
-            "authors_per_device": 1, "reference_access": "known_kernel_reproduction"},
+            "authors_per_device": a.authors_per_device, "reference_access": "known_kernel_reproduction"},
         "skills": {"evolve": "skills/evolve/SKILL.md",
                    "metax-c550-hardware-exploration": "skills/metax-c550-hardware-exploration/SKILL.md"},
         "hosts": {HOST: host}, "assignments": assignments, "unsupported": catalog["unsupported"],

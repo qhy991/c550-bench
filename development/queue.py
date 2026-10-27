@@ -83,7 +83,7 @@ class DevelopmentQueue:
         self.allocation=Path(allocation).resolve(strict=True);self.state=Path(state)
         self.launcher=launcher;self.sleeper=sleeper;self.document=read(self.allocation)
         if self.document.get('kind')!='c500_hmz_development_allocation':raise ValueError('unsupported allocation')
-        # Authors per device comes from the frozen binding: C550 ran two, C500 runs one.
+        # Authors per device comes from the frozen binding, which the plan bounds.
         capacities={run.get('authors_per_device') for run in self.document['runs']}
         if len(capacities)!=1 or not isinstance(next(iter(capacities)),int) or next(iter(capacities))<1:
             raise ValueError('allocation must declare one positive authors_per_device')
