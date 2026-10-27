@@ -14,8 +14,14 @@ Git.
 
 Freeze from the retained C500 Runs with `scripts/freeze_development.py --retained /var/tmp/cake-c500-bench`. The plan
 pins the open-cake-ir Compiler, this launcher commit, GLM-5.3 high, both author skills,
-three-hour budget, static host/device routing and each task's original Workload/starter
-material. `python3 -m development` creates fresh HMZ workspaces without a provider or GPU.
+three-hour budget, static host/device routing, `--authors-per-device` (1 to
+`MAX_AUTHORS_PER_DEVICE`, 4) and each task's original Workload/starter material. The broker
+still runs one device lease per card, so authors beyond the card's evaluation throughput
+wait for the lease with their search clock running; a lease wait beyond 300 s returns
+`no_receipt`. With more than one author per card the queue starts authors on the same card at
+least `START_SPACING_SECONDS` (780 s) apart, so authors that use their full search do not reach
+their single final confirmations together. A confirmation can still meet a sibling's search
+evaluation on the card lease, and an author that ends search early confirms early. Choose the count from the previous round's card busy share and lease wait. `python3 -m development` creates fresh HMZ workspaces without a provider or GPU.
 
 Each prepared `campaign/TASK.md` requires `$evolve` and
 `$metax-c550-hardware-exploration`. `campaign/compiler_tools.py` is the shared pinned HMZ

@@ -11,7 +11,7 @@ from unittest.mock import patch
 from development.binding import HOST, SKILLS, TARGET, validate
 from development.prepare import prepare
 from development.runtime import evaluation_purpose, load_local_baseline, native_plan, parse_cake_submission
-from development.queue import DevelopmentQueue, process_alive, reconcile
+from development.queue import START_SPACING_SECONDS, DevelopmentQueue, process_alive, reconcile
 from development.launch import hmz_command, main as launch_main, release_verified, select_nominee
 from development.submission import abandon_pending, execute, service, validate as validate_request
 from development.owner_evaluation import require_owner
@@ -90,6 +90,33 @@ class DevelopmentPreparation(unittest.TestCase):
             plan['assignments'].pop()
             with self.assertRaisesRegex(ValueError,'intact task denominator'):
                 validate(plan,ROOT)
+
+    def test_freeze_writes_the_declared_authors_per_device(self):
+        import importlib.util
+        spec=importlib.util.spec_from_file_location('freeze',ROOT/'scripts/freeze_development.py')
+        freeze=importlib.util.module_from_spec(spec);spec.loader.exec_module(freeze)
+        with tempfile.TemporaryDirectory() as d:
+            home=Path(d);output=home/'plan.json'
+            rows=[{'task':t,'workload':'w','starter':'s','prior_run':'p','prepared_baseline':'b'}
+                  for t in json.loads((ROOT/'development/tasks.json').read_text())['tasks']]
+            argv=['freeze','--retained',d,'--compiler-commit','a'*40,'--adapter-commit','b'*40,
+                  '--compiler-root','/c','--adapter-root','/a','--home',d,'--owner-root',str(home/'runs'),
+                  '--output',str(output),'--authors-per-device','3']
+            with patch.object(freeze,'retained',return_value=(rows,{})),patch.object(sys,'argv',argv):
+                freeze.main()
+            self.assertEqual(json.loads(output.read_text())['controls']['authors_per_device'],3)
+
+    def test_authors_per_device_is_declared_within_the_named_bound(self):
+        from development.binding import MAX_AUTHORS_PER_DEVICE
+        for value, accepted in ((1, True), (MAX_AUTHORS_PER_DEVICE, True), (0, False),
+                                (MAX_AUTHORS_PER_DEVICE + 1, False), (True, False), ('2', False)):
+            with self.subTest(value=value), tempfile.TemporaryDirectory() as d:
+                _,_,plan=self.inputs(d);plan['controls']['authors_per_device']=value
+                if accepted:
+                    validate(plan,ROOT)
+                else:
+                    with self.assertRaisesRegex(ValueError,'controls differ'):
+                        validate(plan,ROOT)
 
     def test_freeze_writes_pci_ids_the_maca_lease_accepts(self):
         """The MACA lease takes domain:bus:device; a trailing .0 function refused every task."""
@@ -345,13 +372,65 @@ class DevelopmentQueueTests(unittest.TestCase):
                     runs.append({**binding,'prepared_commit':commit})
                 allocation=root/'allocation.json';allocation.write_text(json.dumps({
                     'kind':'c500_hmz_development_allocation','runs':runs}))
-                launcher=_QueueLauncher();result=DevelopmentQueue(
-                    allocation,root/'state',launcher,sleeper=lambda _:None).run()
+                launcher=_QueueLauncher()
+                with patch('development.queue.START_SPACING_SECONDS',0):
+                    result=DevelopmentQueue(allocation,root/'state',launcher,sleeper=lambda _:None).run()
                 self.assertEqual(result,{'assigned':3,'started':3,'terminal':3,'blocked_devices':[]})
                 self.assertEqual(launcher.maximum,capacity)
                 self.assertEqual(len(list((root/'state/claims').glob('*.json'))),3)
                 with self.assertRaises(FileExistsError):
                     DevelopmentQueue(allocation,root/'state',launcher).run()
+
+    def test_authors_on_one_card_start_spaced_and_other_cards_do_not_wait(self):
+        """Same-budget siblings started together reach their single confirmation together."""
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);runs=[]
+            for task,device in (('a',2),('b',2),('c',2),('d',3)):
+                path=root/task;binding={'task':task,'root':str(path),'device':{'physical_device':device},
+                                        'authors_per_device':3}
+                commit=repository(path,{'campaign/development-binding.json':json.dumps(binding)})
+                runs.append({**binding,'prepared_commit':commit})
+            allocation=root/'allocation.json';allocation.write_text(json.dumps({
+                'kind':'c500_hmz_development_allocation','runs':runs}))
+            clock=[0.0];starts={}
+            class Running:
+                def __init__(self,end):self.end=end
+                def poll(self):return 0 if clock[0]>=self.end else None
+            class Launcher(_QueueLauncher):
+                def start(self,run,claim,state):
+                    super().start(run,claim,state);starts[run['task']]=clock[0];return Running(clock[0]+3600)
+            def sleep(seconds):clock[0]+=60
+            result=DevelopmentQueue(allocation,root/'state',Launcher(),sleeper=sleep,clock=lambda:clock[0]).run()
+            self.assertEqual((result['started'],result['terminal'],result['blocked_devices']),(4,4,[]))
+            card=[starts[t] for t in 'abc']
+            self.assertEqual(card[0],0.0)
+            self.assertTrue(all(START_SPACING_SECONDS<=later-earlier<START_SPACING_SECONDS+120
+                                for earlier,later in zip(card,card[1:])),card)
+            self.assertEqual(starts['d'],0.0)
+            self.assertEqual(json.loads((root/'state/LAUNCH.json').read_text())['start_spacing_seconds'],
+                             START_SPACING_SECONDS)
+
+    def test_spacing_never_seals_a_waiting_task_and_one_author_cards_are_not_spaced(self):
+        """A short first Run leaves the card idle while its sibling waits out the spacing."""
+        for capacity,first_gap in ((2,START_SPACING_SECONDS),(1,60.0)):
+            with self.subTest(capacity=capacity), tempfile.TemporaryDirectory() as directory:
+                root=Path(directory);runs=[]
+                for task in ('a','b'):
+                    path=root/task;binding={'task':task,'root':str(path),'device':{'physical_device':2},
+                                            'authors_per_device':capacity}
+                    commit=repository(path,{'campaign/development-binding.json':json.dumps(binding)})
+                    runs.append({**binding,'prepared_commit':commit})
+                allocation=root/'allocation.json';allocation.write_text(json.dumps({
+                    'kind':'c500_hmz_development_allocation','runs':runs}))
+                clock=[0.0];starts={}
+                class Launcher(_QueueLauncher):
+                    def start(self,run,claim,state):
+                        super().start(run,claim,state);starts[run['task']]=clock[0];return _Immediate()
+                def sleep(seconds):clock[0]+=60
+                result=DevelopmentQueue(allocation,root/'state',Launcher(),sleeper=sleep,clock=lambda:clock[0]).run()
+                self.assertEqual((result['started'],result['terminal']),(2,2))
+                self.assertNotIn('error',json.loads((root/'state/terminals/b.json').read_text()))
+                self.assertEqual(starts['b']-starts['a'],first_gap)
 
     def test_dead_owner_reconciliation_seals_started_and_unstarted_tasks(self):
         with tempfile.TemporaryDirectory() as directory:

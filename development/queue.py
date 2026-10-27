@@ -78,12 +78,18 @@ class HostLauncher:
     terminal=ContainerLauncher.terminal
 
 
+# Authors sharing a card start at least this far apart. Each runs the same fixed budget, so
+# they reach their single final confirmation this far apart too: more than the 300 s lease wait
+# plus the 1080 s declared confirmation window minus that wait (r2: 23-682 s after search stop).
+START_SPACING_SECONDS = 780
+
+
 class DevelopmentQueue:
-    def __init__(self,allocation,state,launcher,sleeper=time.sleep):
+    def __init__(self,allocation,state,launcher,sleeper=time.sleep,clock=time.monotonic):
         self.allocation=Path(allocation).resolve(strict=True);self.state=Path(state)
-        self.launcher=launcher;self.sleeper=sleeper;self.document=read(self.allocation)
+        self.launcher=launcher;self.sleeper=sleeper;self.clock=clock;self.document=read(self.allocation)
         if self.document.get('kind')!='c500_hmz_development_allocation':raise ValueError('unsupported allocation')
-        # Authors per device comes from the frozen binding: C550 ran two, C500 runs one.
+        # Authors per device comes from the frozen binding, which the plan bounds.
         capacities={run.get('authors_per_device') for run in self.document['runs']}
         if len(capacities)!=1 or not isinstance(next(iter(capacities)),int) or next(iter(capacities))<1:
             raise ValueError('allocation must declare one positive authors_per_device')
@@ -106,8 +112,9 @@ class DevelopmentQueue:
             write_new(self.state/'LAUNCH.json',{'owner_pid':os.getpid(),'started_at_epoch':time.time(),
                 'owner_start_ticks':process_start_ticks(os.getpid()),
                 'allocation':str(self.allocation),'tasks':len(self.document['runs']),
-                'capacity_per_device':self.capacity,'automatic_retries':0})
-            pending=list(self.document['runs']);active={};blocked=set()
+                'capacity_per_device':self.capacity,'start_spacing_seconds':START_SPACING_SECONDS if self.capacity>1 else 0,'automatic_retries':0})
+            pending=list(self.document['runs']);active={};blocked=set();last_start={}
+            spacing=START_SPACING_SECONDS if self.capacity>1 else 0
             while pending or active:
                 for task,(run,handle) in list(active.items()):
                     code=handle.poll()
@@ -120,8 +127,10 @@ class DevelopmentQueue:
                     del active[task]
                 counts=Counter(run['device']['physical_device'] for run,_ in active.values())
                 while True:
+                    now=self.clock()
                     index=next((i for i,r in enumerate(pending)
-                        if r['device']['physical_device'] not in blocked and counts[r['device']['physical_device']]<self.capacity),None)
+                        if r['device']['physical_device'] not in blocked and counts[r['device']['physical_device']]<self.capacity
+                        and now-last_start.get(r['device']['physical_device'],-spacing)>=spacing),None)
                     if index is None:break
                     run=pending.pop(index);task=run['task'];claim={'task':task,
                         'physical_device':run['device']['physical_device'],'claimed_at_epoch':time.time(),
@@ -133,7 +142,8 @@ class DevelopmentQueue:
                             'done':None,'release_verified':False,'error':'launch:'+type(e).__name__})
                         blocked.add(run['device']['physical_device']);continue
                     active[task]=(run,handle);counts[run['device']['physical_device']]+=1
-                if not active and pending:
+                    last_start[run['device']['physical_device']]=now
+                if not active and pending and all(r['device']['physical_device'] in blocked for r in pending):
                     for run in pending:write_new(self.state/'terminals'/(run['task']+'.json'),{
                         'task':run['task'],'exit_code':None,'done':None,'release_verified':False,
                         'error':'unstarted_release_blocked'})

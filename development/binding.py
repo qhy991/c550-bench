@@ -10,6 +10,9 @@ KIND = "c500_hmz_development_round"
 TARGET = "xcore1000"
 HOST = "metax-infini"
 DEVICES = 4
+# Author processes per card. The local broker still runs one device lease at a time per
+# card, so authors above its evaluation throughput only wait (search clock running).
+MAX_AUTHORS_PER_DEVICE = 4
 SKILLS = {
     "evolve": "skills/evolve/SKILL.md",
     "metax-c550-hardware-exploration": "skills/metax-c550-hardware-exploration/SKILL.md",
@@ -66,12 +69,13 @@ def validate(plan: dict, repository: Path) -> tuple[dict, ...]:
         if not isinstance(plan.get(field), str) or not re.fullmatch(r"[0-9a-f]{40}", plan[field]):
             raise ValueError(f"plan requires an immutable {field}")
     controls = plan.get("controls")
-    if not isinstance(controls, dict) or controls != {
+    authors = controls.get("authors_per_device") if isinstance(controls, dict) else None
+    if (type(authors) is not int or not 1 <= authors <= MAX_AUTHORS_PER_DEVICE or controls != {
         "model": "glm-5.3", "reasoning_effort": "high",
         "wall_time_seconds": 10800, "search_seconds": 9720,
         "confirmation_seconds": 1080, "tokens": "accounting_only",
-        "authors_per_device": 1, "reference_access": "known_kernel_reproduction",
-    }:
+        "authors_per_device": authors, "reference_access": "known_kernel_reproduction",
+    }):
         raise ValueError("C500 development controls differ")
     if plan.get("skills") != SKILLS:
         raise ValueError("plan must grant the exact evolve and MetaX skills")
