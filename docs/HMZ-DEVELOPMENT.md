@@ -19,8 +19,9 @@ three-hour budget, static host/device routing, `--authors-per-device` (1 to
 still runs one device lease per card, so authors beyond the card's evaluation throughput
 wait for the lease with their search clock running; a lease wait beyond 300 s returns
 `no_receipt`. With more than one author per card the queue starts authors on the same card at
-least `START_SPACING_SECONDS` (720 s) apart, so their single final confirmations do not queue
-behind each other. Choose the count from the previous round's card busy share and lease wait. `python3 -m development` creates fresh HMZ workspaces without a provider or GPU.
+least `START_SPACING_SECONDS` (780 s) apart, so authors that use their full search do not reach
+their single final confirmations together. A confirmation can still meet a sibling's search
+evaluation on the card lease, and an author that ends search early confirms early. Choose the count from the previous round's card busy share and lease wait. `python3 -m development` creates fresh HMZ workspaces without a provider or GPU.
 
 Each prepared `campaign/TASK.md` requires `$evolve` and
 `$metax-c550-hardware-exploration`. `campaign/compiler_tools.py` is the shared pinned HMZ

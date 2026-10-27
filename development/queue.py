@@ -79,13 +79,13 @@ class HostLauncher:
 
 
 # Authors sharing a card start at least this far apart. Each runs the same fixed budget, so
-# they reach their single final confirmation this far apart too, and one confirmation does not
-# queue behind another for the card lease (r2: a confirmation ended 23-682 s after search stop).
-START_SPACING_SECONDS = 720
+# they reach their single final confirmation this far apart too: more than the 300 s lease wait
+# plus the 1080 s declared confirmation window minus that wait (r2: 23-682 s after search stop).
+START_SPACING_SECONDS = 780
 
 
 class DevelopmentQueue:
-    def __init__(self,allocation,state,launcher,sleeper=time.sleep,clock=time.time):
+    def __init__(self,allocation,state,launcher,sleeper=time.sleep,clock=time.monotonic):
         self.allocation=Path(allocation).resolve(strict=True);self.state=Path(state)
         self.launcher=launcher;self.sleeper=sleeper;self.clock=clock;self.document=read(self.allocation)
         if self.document.get('kind')!='c500_hmz_development_allocation':raise ValueError('unsupported allocation')
