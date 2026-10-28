@@ -128,7 +128,9 @@ def launch_helpers(source: Path):
     """
     try:
         from open_cake_ir.tasks import launch_runtime as owner
-    except ImportError:
+    except ModuleNotFoundError as error:
+        if error.name != 'open_cake_ir.tasks.launch_runtime':
+            raise
         import tools.launch_task as owner
         config=owner._runtime_config
     else:

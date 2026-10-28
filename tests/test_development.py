@@ -57,7 +57,7 @@ class DevelopmentPreparation(unittest.TestCase):
             'src/open_cake_ir/tasks/__init__.py':'',
             'src/open_cake_ir/tasks/workloads.py':(
                 "from types import SimpleNamespace\n"
-                "def load_workload(path):return SimpleNamespace(target='xcore1000')\n")}
+                "def load_workload(path):return SimpleNamespace(target='gfx938' if 'gfx938' in path.read_text() else 'xcore1000')\n")}
         compiler_commit=repository(compiler,{'tools/hmz_compiler_tools.py':tool,
             'skills/evolve/SKILL.md':'# evolve\n','skills/metax-c550-hardware-exploration/SKILL.md':'# metax\n',
             **package})
@@ -111,6 +111,15 @@ class DevelopmentPreparation(unittest.TestCase):
                 prepare(path,HOST,root/'allocation.json',repository=ROOT)
             self.assertFalse((root/'home'/'runs').exists())
             self.assertFalse((root/'allocation.json').exists())
+
+    def test_a_workload_for_another_target_prepares_no_workspace(self):
+        with tempfile.TemporaryDirectory() as d:
+            root,path,plan=self.inputs(d)
+            other=root/'gfx938-workload.json';other.write_text('{"target": "gfx938"}')
+            plan['assignments'][0]['source']['workload']=str(other);path.write_text(json.dumps(plan))
+            with self.assertRaisesRegex(ValueError,'not xcore1000'):
+                prepare(path,HOST,root/'allocation.json',repository=ROOT)
+            self.assertFalse((root/'home'/'runs').exists())
 
     def test_plan_requires_the_whole_denominator_and_exact_controls(self):
         with tempfile.TemporaryDirectory() as d:
