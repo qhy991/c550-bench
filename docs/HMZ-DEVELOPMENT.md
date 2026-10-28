@@ -1,9 +1,11 @@
 # MetaX C500 HMZ development round
 
 The registered C500 (`xcore1000`, host `metax-infini`, four cards) development round is
-separate from the independent Bench campaign. `development/tasks.json` owns its 61-task
+separate from the independent Bench campaign. `development/tasks.json` owns its 68-task
 denominator, the tasks with a retained C500 Run; `metax_fp8_gemm` and TinyGEMM are the
-unsupported-target rows. It was first written for two C550 hosts; that layout is retired.
+unsupported-target rows. Before each round, open-cake-ir's `tools/evolve.py task-intake`
+lists the catalog tasks this file does not name; a `new_constructible` task joins only
+after its own retained C500 Run (Workload, starter, run.json and sealed baseline) exists. It was first written for two C550 hosts; that layout is retired.
 
 The author is hmz 0.2.1's fenced Claude Code. `scripts/install_hmz_maca.sh` builds the
 run-private `~/.cake-c500-hmz`, whose fence admits `/dev/mxcd`; stock hmz does not. Runs
