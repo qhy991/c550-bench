@@ -43,8 +43,24 @@ class DevelopmentPreparation(unittest.TestCase):
               "assert sys.argv[1:]==['freeze']\n"
               "b=json.loads((root/'campaign/development-binding.json').read_text())\n"
               "(root/'campaign/compiler-api.json').write_text(json.dumps({'compiler_commit':b['compiler'],'transformations':[]}))\n")
+        # A minimal stand-in Compiler: it admits every starter except one whose text names
+        # REFUSED, so preparation's pinned-Compiler admission check runs against it.
+        package={'src/open_cake_ir/__init__.py':'',
+            'src/open_cake_ir/compiler/__init__.py':(
+                "from types import SimpleNamespace\nfrom . import frontend\n"
+                "class Compiler:\n"
+                " @classmethod\n def load(cls,root,revision):return cls()\n"
+                " def assess(self,document):return SimpleNamespace(lowering_eligible='REFUSED' not in document)\n"),
+            'src/open_cake_ir/compiler/frontend.py':(
+                "from types import SimpleNamespace\n"
+                "def read_schedule(path):return SimpleNamespace(document=path.read_text())\n"),
+            'src/open_cake_ir/tasks/__init__.py':'',
+            'src/open_cake_ir/tasks/workloads.py':(
+                "from types import SimpleNamespace\n"
+                "def load_workload(path):return SimpleNamespace(target='xcore1000')\n")}
         compiler_commit=repository(compiler,{'tools/hmz_compiler_tools.py':tool,
-            'skills/evolve/SKILL.md':'# evolve\n','skills/metax-c550-hardware-exploration/SKILL.md':'# metax\n'})
+            'skills/evolve/SKILL.md':'# evolve\n','skills/metax-c550-hardware-exploration/SKILL.md':'# metax\n',
+            **package})
         source=root/'source';source.mkdir();
         for name,text in {'workload.json':'{}','starter.py':'# starter\n','run.json':'{}','baseline.json':'{}'}.items():(source/name).write_text(text)
         devices=[{'physical_device':i,'runtime_device':i,'expected_pci':f'0000:{i:02x}:00'} for i in range(4)]
@@ -83,6 +99,18 @@ class DevelopmentPreparation(unittest.TestCase):
             self.assertFalse((run/'campaign/deadline.json').exists())
             self.assertFalse((run/'campaign/intake.json').exists())
             self.assertEqual(git(run,'status','--porcelain'),'')
+
+    def test_a_task_the_pinned_compiler_refuses_prepares_no_workspace(self):
+        # The C500 set gained tasks a Compiler before open-cake-ir #789 cannot read; a plan
+        # pinning such a Compiler must be refused before any Run root exists.
+        with tempfile.TemporaryDirectory() as d:
+            root,path,plan=self.inputs(d)
+            refused=root/'refused-starter.py';refused.write_text('# REFUSED by this pin\n')
+            plan['assignments'][1]['source']['starter']=str(refused);path.write_text(json.dumps(plan))
+            with self.assertRaisesRegex(ValueError,'pinned Compiler refuses.*'+plan['assignments'][1]['task']):
+                prepare(path,HOST,root/'allocation.json',repository=ROOT)
+            self.assertFalse((root/'home'/'runs').exists())
+            self.assertFalse((root/'allocation.json').exists())
 
     def test_plan_requires_the_whole_denominator_and_exact_controls(self):
         with tempfile.TemporaryDirectory() as d:

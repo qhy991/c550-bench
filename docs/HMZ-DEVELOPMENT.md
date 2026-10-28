@@ -5,7 +5,10 @@ separate from the independent Bench campaign. `development/tasks.json` owns its 
 denominator, the tasks with a retained C500 Run; `metax_fp8_gemm` and TinyGEMM are the
 unsupported-target rows. Before each round, open-cake-ir's `tools/evolve.py task-intake`
 lists the catalog tasks this file does not name; a `new_constructible` task joins only
-after its own retained C500 Run (Workload, starter, run.json and sealed baseline) exists. It was first written for two C550 hosts; that layout is retired.
+after its own retained C500 Run (Workload, starter, run.json and sealed baseline) exists.
+Preparation loads every assigned Workload and starter under the plan's pinned Compiler and
+refuses the plan before creating any Run root if one is refused; aka_affine_nchw/nhwc and
+aka_colwise_lhs_broadcast_subtract need an open-cake-ir Compiler at or after #789. It was first written for two C550 hosts; that layout is retired.
 
 The author is hmz 0.2.1's fenced Claude Code. `scripts/install_hmz_maca.sh` builds the
 run-private `~/.cake-c500-hmz`, whose fence admits `/dev/mxcd`; stock hmz does not. Runs

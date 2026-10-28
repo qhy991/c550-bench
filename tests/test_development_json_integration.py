@@ -27,6 +27,23 @@ class JsonCompilerBoundary(unittest.TestCase):
         cls.schedule=frontend.parse(starter).document
         cls.program=candidate_program(json.dumps({'python_source':starter}).encode()).document
 
+    def test_the_pinned_compilers_own_launch_helpers_are_resolved(self):
+        # open-cake-ir 33794f39 moved the helpers into open_cake_ir.tasks.launch_runtime; both
+        # sides of that refactor must resolve to the pinned checkout's own code.
+        import inspect
+        from development.runtime import launch_helpers
+        admit,baseline,config,builder=launch_helpers(self.source)
+        for helper in (admit,baseline,builder):
+            self.assertTrue(Path(inspect.getsourcefile(helper)).resolve().is_relative_to(self.source))
+        parameters=list(inspect.signature(getattr(inspect.getmodule(admit),'_runtime_config')).parameters)
+        self.assertEqual(parameters[0]=='root',inspect.getmodule(admit).__name__=='open_cake_ir.tasks.launch_runtime')
+        seen={}
+        module=inspect.getmodule(admit)
+        with patch.object(module,'_runtime_config',side_effect=lambda *a,**k: seen.update(a=a,k=k)):
+            launch_helpers(self.source)[2]('workspace','executor','/bin/true','triton',allocation='local_broker')
+        self.assertEqual(seen['a'][:1] if parameters[0]=='root' else (),(self.source,) if parameters[0]=='root' else ())
+        self.assertEqual(seen['a'][-4:],('workspace','executor','/bin/true','triton'))
+
     def run_candidate(self,document,identity,*,compact=False,raw_text=None):
         from open_cake_ir.lab.faults import CandidateCompileRejected
         compiler=self.compiler
@@ -50,8 +67,8 @@ class JsonCompilerBoundary(unittest.TestCase):
             raw=(raw_text if raw_text is not None else json.dumps(document,
                 indent=None if compact else 2,separators=(',',':') if compact else None)).encode()
             candidate=campaign/'candidates/own.json';candidate.write_bytes(raw)
-            with (patch('tools.launch_task._admit_stack',return_value=(compiler,None,None,'cpu-probe')),
-                  patch('tools.launch_task._triton_builder',return_value=probe)):
+            with patch('development.runtime.launch_helpers',
+                       return_value=(lambda *_: (compiler,None,None,'cpu-probe'),None,None,lambda *_: probe)):
                 result=evaluate(root,candidate,identity,'search','cake')
             retained=(campaign/'evaluations'/identity/'authored-source.json').read_bytes()
             return result,raw,retained,probe.requests

@@ -120,11 +120,27 @@ def context(root: Path):
     return binding,source
 
 
+def launch_helpers(source: Path):
+    """The pinned Compiler's launch preparation helpers, wherever that commit keeps them.
+
+    open-cake-ir 33794f39 moved them from tools/launch_task.py into
+    open_cake_ir.tasks.launch_runtime and gave _runtime_config the project root first.
+    """
+    try:
+        from open_cake_ir.tasks import launch_runtime as owner
+    except ImportError:
+        import tools.launch_task as owner
+        config=owner._runtime_config
+    else:
+        config=lambda *arguments,**options: owner._runtime_config(source,*arguments,**options)
+    return owner._admit_stack,owner._prepare_baseline,config,owner._triton_builder
+
+
 def prepare(root: Path) -> dict:
     binding,source=context(root)
     from open_cake_ir.compiler import frontend
     from open_cake_ir.tasks.workloads import load_workload
-    from tools.launch_task import _admit_stack,_prepare_baseline,_runtime_config
+    _admit_stack,_prepare_baseline,_runtime_config,_=launch_helpers(source)
     workload_path=root/'campaign/original-workload.json';starter=root/'campaign/candidates/starter.py'
     workload=load_workload(workload_path)
     if workload.target!='xcore1000': raise ValueError('development Workload target differs')
@@ -220,7 +236,7 @@ def evaluate(root: Path, candidate: Path, identity: str, phase: str, route: str)
     from open_cake_ir.serialization import canonical_json_bytes
     from open_cake_ir.tasks.environments import TaskOpenCakeEnvironment
     from open_cake_ir.tasks.workloads import load_workload
-    from tools.launch_task import _admit_stack,_triton_builder
+    _admit_stack,_,_,_triton_builder=launch_helpers(source)
     workload_path=root/'campaign/original-workload.json';workload=load_workload(workload_path)
     build_root=output/'build';build_root.mkdir()
     compiler,executor,_,compiler_ref=_admit_stack(source,build_root,workload.target,'triton')
